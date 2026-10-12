@@ -11,6 +11,8 @@ import { ExtractedDoc, extractWithLLM } from './extract.js';
 import { parseOfx } from './ofx.js';
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+/** Anexos por mês, por plano (controle de custo de extração). */
+export const PLAN_MONTHLY_ATTACHMENTS: Record<string, number> = { free: 40, pro: 400 };
 const ALLOWED: Record<string, string> = {
   '.pdf': 'application/pdf',
   '.jpg': 'image/jpeg',

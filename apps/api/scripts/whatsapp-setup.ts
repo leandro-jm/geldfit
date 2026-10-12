@@ -11,11 +11,17 @@ import { loadConfig } from '../src/config.js';
 const config = loadConfig();
 if (!config.EVOLUTION_API_KEY) throw new Error('Defina EVOLUTION_API_KEY no .env');
 if (!config.EVOLUTION_WEBHOOK_SECRET) throw new Error('Defina EVOLUTION_WEBHOOK_SECRET no .env');
-const evo = new EvolutionChannel({ baseUrl: config.EVOLUTION_URL, apiKey: config.EVOLUTION_API_KEY, instance: config.EVOLUTION_INSTANCE });
+const evo = new EvolutionChannel({
+  baseUrl: config.EVOLUTION_URL,
+  apiKey: config.EVOLUTION_API_KEY,
+  instance: config.EVOLUTION_INSTANCE,
+});
 const webhook = `${config.EVOLUTION_WEBHOOK_URL}/webhooks/evolution/${config.EVOLUTION_WEBHOOK_SECRET}`;
 
 await evo.ensureInstance(webhook);
-console.log(`Instância "${config.EVOLUTION_INSTANCE}" pronta; webhook → ${webhook.replace(config.EVOLUTION_WEBHOOK_SECRET, '***')}`);
+console.log(
+  `Instância "${config.EVOLUTION_INSTANCE}" pronta; webhook → ${webhook.replace(config.EVOLUTION_WEBHOOK_SECRET, '***')}`,
+);
 const state = await evo.connectionState();
 console.log(`Estado da conexão: ${state}`);
 if (state !== 'open') {

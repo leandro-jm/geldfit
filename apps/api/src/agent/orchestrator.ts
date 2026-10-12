@@ -365,6 +365,20 @@ async function runTool(
     };
   }
   const pendingDrafts: DraftDTO[] = [];
+  const t0 = Date.now();
+  const trace = (isError: boolean, extra: Record<string, unknown> = {}) =>
+    app.log.info(
+      {
+        tool: name,
+        ms: Date.now() - t0,
+        isError,
+        ws: actor.workspaceId,
+        channel: actor.channel,
+        drafts: pendingDrafts.length,
+        ...extra,
+      },
+      'tool call',
+    );
   try {
     const result = await withUserContext(app.db, actor.userId, async (tx) => {
       const ctx: ToolCtx = {
@@ -380,8 +394,10 @@ async function runTool(
     });
     // drafts só são anunciados depois do commit da transação da ferramenta
     pendingDrafts.forEach(onDraft);
+    trace(false);
     return { result, isError: false };
   } catch (err) {
+    trace(true, { code: err instanceof AppError ? err.code : 'internal' });
     if (err instanceof AppError) {
       return {
         result: { error: err.message, code: err.code, ...(err.details ? { details: err.details } : {}) },

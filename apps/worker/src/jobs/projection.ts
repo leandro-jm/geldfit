@@ -31,14 +31,12 @@ export async function refreshWorkspace(ctx: WorkerContext, workspaceId: string) 
           computedAt: new Date(),
         })
         .onConflict((oc) =>
-          oc
-            .columns(['workspaceId', 'userId'])
-            .doUpdateSet({
-              months: JSON.stringify(proj.months),
-              firstBelowFloor: proj.firstBelowFloor,
-              minClosingCents: proj.minClosing?.cents ?? null,
-              computedAt: new Date(),
-            }),
+          oc.columns(['workspaceId', 'userId']).doUpdateSet({
+            months: JSON.stringify(proj.months),
+            firstBelowFloor: proj.firstBelowFloor,
+            minClosingCents: proj.minClosing?.cents ?? null,
+            computedAt: new Date(),
+          }),
         )
         .execute();
       if (proj.firstBelowFloor && proj.firstBelowFloor !== prev?.firstBelowFloor) {

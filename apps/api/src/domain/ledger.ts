@@ -51,7 +51,14 @@ export async function insertTransactions(
   for (const it of items) {
     const n = Math.max(1, it.installments ?? 1);
     // Lançamento real de uma conta prevista por recorrência: baixa a ocorrência agendada
-    if (n === 1 && it.kind !== 'transfer' && it.kind !== 'card_payment' && !it.recurrenceId && (it.status ?? 'posted') === 'posted' && it.date <= today) {
+    if (
+      n === 1 &&
+      it.kind !== 'transfer' &&
+      it.kind !== 'card_payment' &&
+      !it.recurrenceId &&
+      (it.status ?? 'posted') === 'posted' &&
+      it.date <= today
+    ) {
       const reconciled = await reconcileWithScheduled(tx, actor, it, draftId);
       if (reconciled) {
         ids.push(reconciled);
@@ -137,7 +144,12 @@ export async function insertTransactions(
  * Procura a ocorrência agendada da mesma recorrência (mesma conta/cartão, sentido e categoria, até
  * 7 dias de distância e valor até 25% diferente) e a marca como paga com os valores reais.
  */
-async function reconcileWithScheduled(tx: Tx, actor: Actor, it: NewTransaction, draftId?: string | null): Promise<string | null> {
+async function reconcileWithScheduled(
+  tx: Tx,
+  actor: Actor,
+  it: NewTransaction,
+  draftId?: string | null,
+): Promise<string | null> {
   if (!it.categoryId) return null;
   const lo = Math.round(it.amountCents * 0.75);
   const hi = Math.round(it.amountCents * 1.25);
@@ -151,14 +163,31 @@ async function reconcileWithScheduled(tx: Tx, actor: Actor, it: NewTransaction, 
     order by abs(t.date - ${it.date}::date), abs(t.amount_cents - ${it.amountCents}) limit 1`.execute(tx);
   const id = match.rows[0]?.id;
   if (!id) return null;
-  const before = await tx.selectFrom('transactions').selectAll().where('id', '=', id).executeTakeFirstOrThrow();
+  const before = await tx
+    .selectFrom('transactions')
+    .selectAll()
+    .where('id', '=', id)
+    .executeTakeFirstOrThrow();
   const after = await tx
     .updateTable('transactions')
-    .set({ status: 'posted', date: it.date, amountCents: it.amountCents, source: it.source ?? before.source, attachmentId: it.attachmentId ?? before.attachmentId })
+    .set({
+      status: 'posted',
+      date: it.date,
+      amountCents: it.amountCents,
+      source: it.source ?? before.source,
+      attachmentId: it.attachmentId ?? before.attachmentId,
+    })
     .where('id', '=', id)
     .returningAll()
     .executeTakeFirstOrThrow();
-  await audit(tx, actor, { action: 'update', entity: 'transactions', entityId: id, before: [before], after: [after], draftId });
+  await audit(tx, actor, {
+    action: 'update',
+    entity: 'transactions',
+    entityId: id,
+    before: [before],
+    after: [after],
+    draftId,
+  });
   return id;
 }
 

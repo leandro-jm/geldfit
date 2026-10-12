@@ -121,14 +121,12 @@ export async function monthlyFlows(tx: Tx, ws: string, today: string): Promise<M
     return { month, incomeCents: Number(r?.inc ?? 0), expenseCents: Number(r?.exp ?? 0), projected: false };
   });
   const proj = await computeProjection(tx, ws, { months: 4 });
-  const projected = proj.months
-    .slice(1, 4)
-    .map((m) => ({
-      month: m.month,
-      incomeCents: m.incomeCents,
-      expenseCents: m.expenseCents + m.cardBillsCents + m.variableCents + m.goalsCents,
-      projected: true,
-    }));
+  const projected = proj.months.slice(1, 4).map((m) => ({
+    month: m.month,
+    incomeCents: m.incomeCents,
+    expenseCents: m.expenseCents + m.cardBillsCents + m.variableCents + m.goalsCents,
+    projected: true,
+  }));
   return [...realized, ...projected];
 }
 

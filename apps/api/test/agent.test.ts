@@ -143,7 +143,14 @@ describe.skipIf(!hasDb)('Agente (provedor fake): draft → confirmação → aud
     await say('paguei 125 de internet no BB hoje');
     await say('sim');
     expect(await count('transactions')).toBe(before); // reconciliou em vez de inserir
-    const rows = await env.as(actor.userId, (t) => t.selectFrom('transactions').select(['status', 'amountCents']).where('recurrenceId', 'is not', null).where('amountCents', '=', 12_500).execute());
+    const rows = await env.as(actor.userId, (t) =>
+      t
+        .selectFrom('transactions')
+        .select(['status', 'amountCents'])
+        .where('recurrenceId', 'is not', null)
+        .where('amountCents', '=', 12_500)
+        .execute(),
+    );
     expect(rows).toEqual([{ status: 'posted', amountCents: 12_500 }]);
   });
 

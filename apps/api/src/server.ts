@@ -53,13 +53,11 @@ export async function buildServer(
     if (err instanceof AppError)
       return reply.code(err.status).send({ error: err.message, code: err.code, details: err.details });
     if (err instanceof ZodError)
-      return reply
-        .code(400)
-        .send({
-          error: 'Dados inválidos.',
-          code: 'validation',
-          details: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
-        });
+      return reply.code(400).send({
+        error: 'Dados inválidos.',
+        code: 'validation',
+        details: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+      });
     const code = pgErrorCode(err);
     if (code === '42501')
       return reply.code(403).send({ error: 'Você não tem permissão para esta ação.', code: 'forbidden' });
