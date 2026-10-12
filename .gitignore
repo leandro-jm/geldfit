@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.env.*.local
+data/files/*
+!data/files/.gitkeep
+coverage
+playwright-report
+test-results
+*.log
+.DS_Store
+db/schema.sql

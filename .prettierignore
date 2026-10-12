@@ -1,0 +1,4 @@
+pnpm-lock.yaml
+db/migrations
+docs
+packages/db/src/generated.ts

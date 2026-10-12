@@ -1,0 +1,8 @@
+packages:
+  - apps/*
+  - packages/*
+allowBuilds:
+  esbuild: true
+  dbmate: true
+minimumReleaseAgeExclude:
+  - zod@4.6.6

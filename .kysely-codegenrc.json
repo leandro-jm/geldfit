@@ -1,0 +1,10 @@
+{
+  "dialect": "postgres",
+  "url": "env(DATABASE_URL_OWNER)",
+  "outFile": "packages/db/src/generated.ts",
+  "camelCase": true,
+  "dateParser": "string",
+  "numericParser": "number",
+  "typeMapping": { "int8": "number" },
+  "excludePattern": "schema_migrations"
+}

@@ -1,0 +1,36 @@
+{
+  "name": "saude-financeira",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.5.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter ./apps/** dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:up": "docker compose up -d postgres",
+    "db:migrate": "dbmate --env-file .env -e DATABASE_URL_OWNER --migrations-dir db/migrations --no-dump-schema up",
+    "db:rollback": "dbmate --env-file .env -e DATABASE_URL_OWNER --migrations-dir db/migrations --no-dump-schema down",
+    "db:new": "dbmate --migrations-dir db/migrations new",
+    "db:reset": "dbmate --env-file .env -e DATABASE_URL_OWNER --migrations-dir db/migrations --no-dump-schema drop && pnpm db:create && pnpm db:migrate",
+    "db:codegen": "kysely-codegen --env-file .env",
+    "e2e": "pnpm --filter @sf/web e2e",
+    "eval:cvm": "pnpm --filter @sf/api eval:cvm",
+    "lint": "prettier --check .",
+    "db:create": "dbmate --env-file .env -e DATABASE_URL_OWNER create"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "dbmate": "^2.36.0",
+    "dotenv": "^18.0.7",
+    "kysely-codegen": "^0.20.0",
+    "prettier": "^3.9.10",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.3"
+  }
+}

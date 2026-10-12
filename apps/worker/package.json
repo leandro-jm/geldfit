@@ -1,0 +1,25 @@
+{
+  "name": "@sf/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file=../../.env src/main.ts",
+    "start": "node dist/main.js",
+    "build": "tsup src/main.ts --format esm --target node22 --out-dir dist --clean --no-splitting --noExternal @sf/shared --noExternal @sf/db --noExternal @sf/llm --noExternal @sf/api",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@sf/api": "workspace:*",
+    "@sf/db": "workspace:*",
+    "@sf/llm": "workspace:*",
+    "@sf/shared": "workspace:*",
+    "kysely": "^0.29.6",
+    "node-cron": "^4.6.0",
+    "pino": "^10.4.0"
+  },
+  "devDependencies": {
+    "pino-pretty": "^13.2.0",
+    "tsup": "^8.5.1"
+  }
+}
