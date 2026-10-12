@@ -31,16 +31,14 @@ export const getPortfolioTool = defineTool({
         ptax: pf.usd.ptax,
         ptax_date: pf.usd.ptaxDate,
       },
-      positions: pf.positions
-        .slice(0, 30)
-        .map((p) => ({
-          asset: p.ticker ?? p.name,
-          qty: p.qty,
-          avg_price: formatBRL(p.avgPriceCents),
-          value: formatBRL(p.marketValueCents),
-          pnl: formatBRL(p.pnlCents),
-          price_date: p.priceDate,
-        })),
+      positions: pf.positions.slice(0, 30).map((p) => ({
+        asset: p.ticker ?? p.name,
+        qty: p.qty,
+        avg_price: formatBRL(p.avgPriceCents),
+        value: formatBRL(p.marketValueCents),
+        pnl: formatBRL(p.pnlCents),
+        price_date: p.priceDate,
+      })),
       performance: pf.performance.map((p) => ({
         period: p.period,
         carteira: fmtPct(p.portfolioPct),

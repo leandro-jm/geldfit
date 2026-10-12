@@ -29,7 +29,10 @@ export function createDb(
     max: opts.max ?? 10,
     application_name: opts.applicationName ?? 'saude-financeira',
   });
-  const db = new Kysely<DB>({ dialect: new PostgresDialect({ pool }), plugins: [new CamelCasePlugin()] });
+  const db = new Kysely<DB>({
+    dialect: new PostgresDialect({ pool }),
+    plugins: [new CamelCasePlugin({ maintainNestedObjectKeys: true })],
+  });
   return { db, pool, close: () => db.destroy() };
 }
 

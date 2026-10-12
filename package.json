@@ -10,7 +10,7 @@
     "dev": "pnpm -r --parallel --filter ./apps/** dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "test": "vitest run",
+    "test": "pnpm -s db:test:prepare >/dev/null && vitest run",
     "test:watch": "vitest",
     "db:up": "docker compose up -d postgres",
     "db:migrate": "dbmate --env-file .env -e DATABASE_URL_OWNER --migrations-dir db/migrations --no-dump-schema up",
@@ -21,7 +21,8 @@
     "e2e": "pnpm --filter @sf/web e2e",
     "eval:cvm": "pnpm --filter @sf/api eval:cvm",
     "lint": "prettier --check .",
-    "db:create": "dbmate --env-file .env -e DATABASE_URL_OWNER create"
+    "db:create": "dbmate --env-file .env -e DATABASE_URL_OWNER create",
+    "db:test:prepare": "dbmate --env-file .env -e DATABASE_URL_TEST_OWNER --migrations-dir db/migrations --no-dump-schema create && dbmate --env-file .env -e DATABASE_URL_TEST_OWNER --migrations-dir db/migrations --no-dump-schema up"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

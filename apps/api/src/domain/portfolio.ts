@@ -106,7 +106,7 @@ export async function latestBenchmark(tx: Tx, series: string, onOrBefore?: strin
 async function pricesAt(tx: Tx, assetIds: string[], onOrBefore: string) {
   if (!assetIds.length) return new Map<string, { closeCents: number; date: string }>();
   const rows = await sql<{ assetId: string; closeCents: number; date: string }>`
-    select distinct on (asset_id) asset_id as "assetId", close_cents as "closeCents", date::text as date
+    select distinct on (asset_id) asset_id as "assetId", coalesce(close * 100, close_cents)::float8 as "closeCents", date::text as date
     from asset_prices where asset_id = any(${assetIds}::uuid[]) and date <= ${onOrBefore}::date
     order by asset_id, date desc`.execute(tx);
   return new Map(rows.rows.map((r) => [r.assetId, { closeCents: Number(r.closeCents), date: r.date }]));

@@ -146,7 +146,7 @@ export async function computeInsights(tx: Tx, ws: string, today: string): Promis
     for (const f of funds) {
       const m = meta.find((x) => x.id === f.assetId)!;
       const quotes = await sql<{ first: number; last: number; firstDate: string }>`
-        select (array_agg(close_cents order by date))[1]::bigint as first, (array_agg(close_cents order by date desc))[1]::bigint as last, min(date)::text as "firstDate"
+        select (array_agg(coalesce(close, close_cents / 100.0) order by date))[1]::float8 as first, (array_agg(coalesce(close, close_cents / 100.0) order by date desc))[1]::float8 as last, min(date)::text as "firstDate"
         from asset_prices where asset_id = ${f.assetId}::uuid and date >= ${from}::date`.execute(tx);
       const q = quotes.rows[0];
       const ret = q && Number(q.first) > 0 ? Number(q.last) / Number(q.first) - 1 : null;

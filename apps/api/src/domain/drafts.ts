@@ -254,11 +254,12 @@ export async function createDraft<K extends DraftKind>(
   payload: DraftPayload<K>,
   preview: DraftPreview,
   conversationId?: string | null,
+  opts: { computeImpact?: boolean } = {},
 ): Promise<DraftDTO> {
   if (actor.role === 'viewer') throw forbidden('Seu papel neste workspace é só leitura.');
   const parsed = DRAFT_SCHEMAS[kind].parse(payload) as DraftPayload<K>;
 
-  if (AFFECTS_PROJECTION.has(kind)) {
+  if (AFFECTS_PROJECTION.has(kind) && opts.computeImpact !== false) {
     try {
       const before = await computeProjection(tx, actor.workspaceId);
       await sql`savepoint draft_preview`.execute(tx);
@@ -734,14 +735,12 @@ async function applyDraft<K extends DraftKind>(
           attachmentId: t.attachmentId ?? null,
         })
         .onConflict((oc) =>
-          oc
-            .columns(['planId', 'refMonth'])
-            .doUpdateSet({
-              balanceCents: t.balanceCents,
-              contribParticipantCents: t.participantCents,
-              contribSponsorCents: t.sponsorCents,
-              attachmentId: t.attachmentId ?? null,
-            }),
+          oc.columns(['planId', 'refMonth']).doUpdateSet({
+            balanceCents: t.balanceCents,
+            contribParticipantCents: t.participantCents,
+            contribSponsorCents: t.sponsorCents,
+            attachmentId: t.attachmentId ?? null,
+          }),
         )
         .returningAll()
         .executeTakeFirstOrThrow();
@@ -804,13 +803,11 @@ async function applyDraft<K extends DraftKind>(
           .insertInto('allocationTargets')
           .values({ workspaceId: ws, ...target })
           .onConflict((oc) =>
-            oc
-              .columns(['workspaceId', 'assetClass'])
-              .doUpdateSet({
-                targetPct: target.targetPct,
-                minPct: target.minPct ?? null,
-                maxPct: target.maxPct ?? null,
-              }),
+            oc.columns(['workspaceId', 'assetClass']).doUpdateSet({
+              targetPct: target.targetPct,
+              minPct: target.minPct ?? null,
+              maxPct: target.maxPct ?? null,
+            }),
           )
           .execute();
       }

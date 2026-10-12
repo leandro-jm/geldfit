@@ -61,6 +61,7 @@ export interface AssetEvents {
 
 export interface AssetPrices {
   assetId: string;
+  close: Numeric | null;
   closeCents: number;
   date: string;
   source: string;
