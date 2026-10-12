@@ -276,6 +276,9 @@ export interface ChatMessageDTO {
 export type ChatStreamEvent =
   | { type: 'message_start'; messageId: string }
   | { type: 'text_delta'; text: string }
+  /** Substitui o texto já transmitido (ex.: resposta reescrita pelo filtro de conformidade). */
+  | { type: 'text_replace'; text: string }
+  | { type: 'confirmed'; draftId: string; summary: string; impact: string | null }
   | { type: 'tool'; name: string; status: 'start' | 'end' }
   | { type: 'draft'; draft: DraftDTO }
   | { type: 'message_end'; messageId: string }

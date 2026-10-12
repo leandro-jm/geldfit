@@ -74,6 +74,9 @@ importers:
       papaparse:
         specifier: ^5.7.0
         version: 5.7.0
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
       pino:
         specifier: ^10.4.0
         version: 10.4.0
@@ -93,6 +96,9 @@ importers:
       '@types/papaparse':
         specifier: ^5.5.2
         version: 5.5.2
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
       pino-pretty:
         specifier: ^13.2.0
         version: 13.2.0
@@ -149,9 +155,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.133.0
         version: 0.133.0(zod@4.6.6)
-      openai:
-        specifier: ^7.32.0
-        version: 7.32.0(zod@4.6.6)
+      '@sf/shared':
+        specifier: workspace:*
+        version: link:../shared
       zod:
         specifier: ^4.6.6
         version: 4.6.6
@@ -1529,30 +1535,6 @@ packages:
 
   once@1.4.0:
     resolution: {integrity: sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==}
-
-  openai@7.32.0:
-    resolution: {integrity: sha512-avqxu/jl1gsVBCBgFNPr9sTh+wZppQphuhhFy1zEvAJxEaJ4t0ery6hZdOT9kws/EcNTARoQcZs2IT3bliE1SA==}
-    engines: {node: '>=22.0.0'}
-    peerDependencies:
-      '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
-      '@smithy/hash-node': '>=4.3.0 <5'
-      '@smithy/signature-v4': '>=5.4.0 <6'
-      undici: '>=5 <9'
-      ws: ^8.21.0
-      zod: ^3.25 || ^4.0
-    peerDependenciesMeta:
-      '@aws-sdk/credential-provider-node':
-        optional: true
-      '@smithy/hash-node':
-        optional: true
-      '@smithy/signature-v4':
-        optional: true
-      undici:
-        optional: true
-      ws:
-        optional: true
-      zod:
-        optional: true
 
   papaparse@5.7.0:
     resolution: {integrity: sha512-qBGxg/7Q3Kl9Wfhrz2Z74UnvnHTXLNG6jmKJFeBvP2+y4lV7So+7SR62+Zd47JvdrCkX+nDcnr0ObPzek/+6RA==}
@@ -2969,10 +2951,6 @@ snapshots:
   once@1.4.0:
     dependencies:
       wrappy: 1.0.2
-
-  openai@7.32.0(zod@4.6.6):
-    optionalDependencies:
-      zod: 4.6.6
 
   papaparse@5.7.0: {}
 

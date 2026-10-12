@@ -9,12 +9,19 @@ const BRL_COMPACT = new Intl.NumberFormat('pt-BR', {
   maximumFractionDigits: 1,
 });
 
+// Intl usa espaço não separável; trocamos por espaço comum (WhatsApp, testes, cópia).
+const nbsp = /\u00a0|\u202f/g;
+
 export function formatBRL(cents: Cents | bigint | string): string {
-  return BRL.format(Number(cents) / 100);
+  return BRL.format(Number(cents) / 100)
+    .replace(nbsp, ' ')
+    .replace('-R$', '−R$');
 }
 
 export function formatBRLCompact(cents: Cents | bigint | string): string {
-  return BRL_COMPACT.format(Number(cents) / 100);
+  return BRL_COMPACT.format(Number(cents) / 100)
+    .replace(nbsp, ' ')
+    .replace('-R$', '−R$');
 }
 
 export function toCents(value: number): Cents {
