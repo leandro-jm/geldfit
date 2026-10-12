@@ -81,6 +81,7 @@ services:
       SMTP_HOST: mailpit
       SMTP_PORT: 1025
       EVOLUTION_URL: http://evolution:8080
+      TRUST_PROXY: uniquelocal
     depends_on:
       postgres: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }

@@ -24,6 +24,11 @@ const schema = z.object({
   EVOLUTION_WEBHOOK_SECRET: z.string().default(''),
   EVOLUTION_WEBHOOK_URL: z.string().default('http://host.docker.internal:4000'),
   BRAPI_TOKEN: z.string().optional(),
+  /** false | true | lista de IPs/CIDR (ex.: "loopback,uniquelocal" atrás do nginx do compose) */
+  TRUST_PROXY: z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined || v === '' || v === 'false' ? false : v === 'true' ? true : v)),
 });
 
 export type Config = z.infer<typeof schema>;

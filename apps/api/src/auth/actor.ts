@@ -29,7 +29,8 @@ export function sessionGuard(auth: Auth) {
 export function workspaceGuard(app: AppContext) {
   return async function requireWorkspace(req: FastifyRequest, _reply: FastifyReply) {
     if (!req.user) throw new AppError(401, 'Faça login para continuar.', 'unauthenticated');
-    const wanted = (req.headers['x-workspace-id'] as string | undefined) ?? null;
+    const fromQuery = (req.query as { ws?: string } | undefined)?.ws;
+    const wanted = (req.headers['x-workspace-id'] as string | undefined) ?? (fromQuery && /^[0-9a-f-]{36}$/.test(fromQuery) ? fromQuery : null);
     const m = await withUserContext(app.db, req.user.id, async (tx) => {
       let q = tx
         .selectFrom('memberships as m')

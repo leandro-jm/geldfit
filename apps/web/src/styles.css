@@ -1,0 +1,235 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* -------------------------------------------------------------------------------------------
+ * Tokens. Paleta neutra + um destaque (azul). Verde/vermelho só para entradas/saídas e alertas.
+ * Gráficos usam a paleta categórica validada (dataviz) — mesmas matizes, degraus por tema.
+ * ----------------------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+  --background: #f6f6f4;
+  --foreground: #111110;
+  --card: #ffffff;
+  --card-foreground: #111110;
+  --popover: #ffffff;
+  --muted: #efeeea;
+  --muted-foreground: #5c5b57;
+  --subtle: #f3f2ef;
+  --border: #e3e2dc;
+  --input: #d6d5ce;
+  --ring: #2563c4;
+  --primary: #2563c4;
+  --primary-foreground: #ffffff;
+  --primary-soft: #e6effb;
+  --primary-soft-foreground: #1c4f9c;
+  --positive: #0b7a3b;
+  --positive-soft: #e5f4ea;
+  --negative: #c0322f;
+  --negative-soft: #fbe9e8;
+  --warning: #8a5a00;
+  --warning-soft: #fdf1d6;
+  --shadow-color: 30 20 10;
+
+  --chart-surface: #ffffff;
+  --chart-grid: #ebeae4;
+  --chart-axis: #c3c2b7;
+  --chart-label: #6b6a66;
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+  --chart-6: #008300;
+  --chart-7: #6250d6;
+  --chart-8: #e34948;
+  --chart-in: #1a9a55;
+  --chart-out: #d64545;
+  --chart-floor: #d03b3b;
+
+  --sidebar-w: 248px;
+  --chat-w: 400px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --vvh: 100dvh;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --background: #111110;
+  --foreground: #f0efec;
+  --card: #1a1a19;
+  --card-foreground: #f0efec;
+  --popover: #1f1f1e;
+  --muted: #262624;
+  --muted-foreground: #aeada6;
+  --subtle: #202020;
+  --border: #2e2e2c;
+  --input: #3a3a37;
+  --ring: #5b9cea;
+  --primary: #5b9cea;
+  --primary-foreground: #08111f;
+  --primary-soft: #19283b;
+  --primary-soft-foreground: #9cc3f3;
+  --positive: #3cc77a;
+  --positive-soft: #132a1d;
+  --negative: #f07a76;
+  --negative-soft: #321918;
+  --warning: #f2b84b;
+  --warning-soft: #2e2512;
+  --shadow-color: 0 0 0;
+
+  --chart-surface: #1a1a19;
+  --chart-grid: #2c2c2a;
+  --chart-axis: #383835;
+  --chart-label: #a3a29b;
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #9085e9;
+  --chart-8: #e66767;
+  --chart-in: #2fb36a;
+  --chart-out: #e66767;
+  --chart-floor: #e66767;
+}
+
+@theme inline {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle: var(--subtle);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-soft-foreground: var(--primary-soft-foreground);
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-soft: 0 1px 2px rgb(var(--shadow-color) / 0.05), 0 4px 16px -6px rgb(var(--shadow-color) / 0.1);
+  --shadow-pop: 0 2px 6px rgb(var(--shadow-color) / 0.08), 0 16px 40px -12px rgb(var(--shadow-color) / 0.25);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  button,
+  [role='button'] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+/* Valores monetários: algarismos tabulares e modo privacidade (borra com um toque). */
+.money,
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+.privacy .money,
+.privacy .sensitive {
+  filter: blur(7px);
+  user-select: none;
+  transition: filter 0.15s;
+}
+.privacy .sensitive {
+  filter: blur(9px);
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--muted) 0%, var(--subtle) 50%, var(--muted) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.typing-dot {
+  animation: typing 1.2s infinite ease-in-out;
+}
+.typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Vaul (bottom sheet) */
+[data-vaul-drawer] {
+  touch-action: none;
+}

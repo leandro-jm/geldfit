@@ -4,6 +4,7 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
+import { createHash } from 'node:crypto';
 import { ZodError } from 'zod';
 import type pg from 'pg';
 import type { AppContext } from './context.js';
@@ -26,7 +27,8 @@ export async function buildServer(
   const server = Fastify({
     loggerInstance: app.log as unknown as FastifyBaseLogger,
     bodyLimit: 2 * 1024 * 1024,
-    trustProxy: true,
+    // só confia em X-Forwarded-For de proxies configurados (ex.: o nginx da web)
+    trustProxy: app.config.TRUST_PROXY,
     disableRequestLogging: false,
   });
   const auth = createAuth({ config: app.config, pool, db: app.db, mailer: app.mailer });
@@ -45,7 +47,11 @@ export async function buildServer(
   await server.register(rateLimit, {
     max: 300,
     timeWindow: '1 minute',
-    keyGenerator: (req) => req.user?.id ?? req.ip,
+    // o limite roda antes da checagem de sessão: a chave é o cookie de sessão (hash), senão o IP
+    keyGenerator: (req) => {
+      const token = /(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=([^;]+)/.exec(req.headers.cookie ?? '')?.[1];
+      return token ? `s:${createHash('sha256').update(token).digest('base64url').slice(0, 22)}` : `ip:${req.ip}`;
+    },
   });
   await server.register(multipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } });
 

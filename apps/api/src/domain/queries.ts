@@ -302,6 +302,7 @@ export async function upcoming(tx: Tx, ws: string, today: string, days = 15): Pr
       't.amountCents',
       't.direction',
       'a.name as accountName',
+      't.accountId',
       't.recurrenceId',
       'r.isBill',
     ])
@@ -318,9 +319,11 @@ export async function upcoming(tx: Tx, ws: string, today: string, days = 15): Pr
     dueDate: string;
     cardName: string;
     remaining: number;
+    accountId: string | null;
+    cardId: string;
     accountName: string | null;
   }>`
-    select st.id, st.due_date::text as "dueDate", c.name as "cardName", (st.total_cents - st.paid_cents)::bigint as remaining, a.name as "accountName"
+    select st.id, st.due_date::text as "dueDate", c.name as "cardName", (st.total_cents - st.paid_cents)::bigint as remaining, a.name as "accountName", c.account_id as "accountId", c.id as "cardId"
     from card_statement_totals st join cards c on c.id = st.card_id left join accounts a on a.id = c.account_id
     where st.workspace_id = ${ws}::uuid and st.status <> 'paid' and st.total_cents > st.paid_cents
       and st.due_date <= ${until}::date and st.due_date >= ${addDays(today, -30)}::date
@@ -334,6 +337,8 @@ export async function upcoming(tx: Tx, ws: string, today: string, days = 15): Pr
       amountCents: s.amountCents,
       direction: s.direction as 'in' | 'out',
       accountName: s.accountName,
+      accountId: s.accountId,
+      cardId: null,
       canMarkPaid: true,
     })),
     ...statements.rows.map((s) => ({
@@ -344,6 +349,8 @@ export async function upcoming(tx: Tx, ws: string, today: string, days = 15): Pr
       amountCents: Number(s.remaining),
       direction: 'out' as const,
       accountName: s.accountName,
+      accountId: s.accountId,
+      cardId: s.cardId,
       canMarkPaid: true,
     })),
   ];

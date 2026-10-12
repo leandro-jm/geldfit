@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import { createDb } from '@sf/db';
 import { providerFromEnv } from '@sf/llm';
@@ -12,6 +14,8 @@ export function createAppContext(
   opts: { name: string; databaseUrl?: string; env?: NodeJS.ProcessEnv } = { name: 'api' },
 ) {
   const config: Config = loadConfig(opts.env);
+  // caminho relativo de FILES_DIR vale a partir da raiz do repositório, não do diretório do app
+  if (!path.isAbsolute(config.FILES_DIR)) config.FILES_DIR = path.resolve(fileURLToPath(new URL('../../../', import.meta.url)), config.FILES_DIR);
   const log = pino({
     level: process.env.LOG_LEVEL ?? 'info',
     base: { svc: opts.name },

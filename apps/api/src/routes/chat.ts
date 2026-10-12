@@ -125,6 +125,16 @@ export async function chatRoutes(
   );
 
   // --- Drafts -------------------------------------------------------------------------------
+  f.get('/api/drafts', pre, async (req) => {
+    const q = z.object({ status: z.enum(['pending', 'confirmed', 'cancelled', 'expired']).default('pending'), kind: z.string().max(40).optional() }).parse(req.query);
+    return inActor(app, req, async (tx, a) => {
+      let qb = tx.selectFrom('drafts').select(['id', 'kind', 'status', 'preview', 'expiresAt', 'createdAt', 'conversationId']).where('workspaceId', '=', a.workspaceId).where('status', '=', q.status).orderBy('createdAt', 'desc').limit(100);
+      if (q.status === 'pending') qb = qb.where('expiresAt', '>', new Date());
+      if (q.kind) qb = qb.where('kind', '=', q.kind);
+      return (await qb.execute()).map((d) => ({ ...toDraftDTO(d), createdAt: new Date(d.createdAt).toISOString(), conversationId: d.conversationId }));
+    });
+  });
+
   f.get('/api/drafts/:id', pre, async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     return inActor(app, req, async (tx) => {

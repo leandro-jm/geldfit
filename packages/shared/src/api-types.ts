@@ -129,6 +129,8 @@ export interface UpcomingItem {
   amountCents: number;
   direction: 'in' | 'out';
   accountName: string | null;
+  accountId: string | null; // conta da conta agendada, ou conta que paga a fatura
+  cardId: string | null; // cartão (faturas)
   canMarkPaid: boolean;
 }
 
