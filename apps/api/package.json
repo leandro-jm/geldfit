@@ -8,7 +8,9 @@
     "start": "node dist/main.js",
     "build": "tsup src/main.ts --format esm --target node22 --out-dir dist --clean --no-splitting --noExternal @sf/shared --noExternal @sf/db --noExternal @sf/llm",
     "typecheck": "tsc -p tsconfig.json",
-    "eval:cvm": "tsx --env-file=../../.env scripts/eval-cvm.ts"
+    "eval:cvm": "tsx --env-file=../../.env scripts/eval-cvm.ts",
+    "whatsapp:setup": "tsx --env-file=../../.env scripts/whatsapp-setup.ts",
+    "seed:demo": "tsx --env-file=../../.env scripts/seed-demo.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.3",

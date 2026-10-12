@@ -134,6 +134,19 @@ describe.skipIf(!hasDb)('Agente (provedor fake): draft → confirmação → aud
     expect(Number(n.n)).toBeGreaterThanOrEqual(24);
   });
 
+  it('pagamento real de conta recorrente baixa a ocorrência agendada (sem duplicar)', async () => {
+    const { addDays, todayISO } = await import('@sf/shared');
+    const day = Number(addDays(todayISO(), 2).slice(8, 10));
+    await say(`todo dia ${day} pago 120 de internet no BB`);
+    await say('sim');
+    const before = await count('transactions');
+    await say('paguei 125 de internet no BB hoje');
+    await say('sim');
+    expect(await count('transactions')).toBe(before); // reconciliou em vez de inserir
+    const rows = await env.as(actor.userId, (t) => t.selectFrom('transactions').select(['status', 'amountCents']).where('recurrenceId', 'is not', null).where('amountCents', '=', 12_500).execute());
+    expect(rows).toEqual([{ status: 'posted', amountCents: 12_500 }]);
+  });
+
   it('consultas respondem com números', async () => {
     const p = await say('quanto sobra em dezembro?');
     expect(p.text).toMatch(/dezembro de \d{4}.*R\$/);

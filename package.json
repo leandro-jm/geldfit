@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm -r --parallel --filter ./apps/** dev",
+    "dev": "pnpm -r --parallel --filter @sf/api --filter @sf/worker --filter @sf/web dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -s db:test:prepare >/dev/null && vitest run",
@@ -22,7 +22,9 @@
     "eval:cvm": "pnpm --filter @sf/api eval:cvm",
     "lint": "prettier --check .",
     "db:create": "dbmate --env-file .env -e DATABASE_URL_OWNER create",
-    "db:test:prepare": "dbmate --env-file .env -e DATABASE_URL_TEST_OWNER --migrations-dir db/migrations --no-dump-schema create && dbmate --env-file .env -e DATABASE_URL_TEST_OWNER --migrations-dir db/migrations --no-dump-schema up"
+    "db:test:prepare": "dbmate --env-file .env -e DATABASE_URL_TEST_OWNER --migrations-dir db/migrations --no-dump-schema up",
+    "whatsapp:setup": "pnpm --filter @sf/api whatsapp:setup",
+    "seed:demo": "pnpm --filter @sf/api seed:demo"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

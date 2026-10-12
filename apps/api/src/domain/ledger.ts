@@ -50,6 +50,14 @@ export async function insertTransactions(
   const ids: string[] = [];
   for (const it of items) {
     const n = Math.max(1, it.installments ?? 1);
+    // Lançamento real de uma conta prevista por recorrência: baixa a ocorrência agendada
+    if (n === 1 && it.kind !== 'transfer' && it.kind !== 'card_payment' && !it.recurrenceId && (it.status ?? 'posted') === 'posted' && it.date <= today) {
+      const reconciled = await reconcileWithScheduled(tx, actor, it, draftId);
+      if (reconciled) {
+        ids.push(reconciled);
+        continue;
+      }
+    }
     let rows: Array<{ date: ISODate; amountCents: number; n: number | null }>;
     if (n > 1 && it.installmentStart) {
       rows = [];
@@ -123,6 +131,35 @@ export async function insertTransactions(
     });
   }
   return ids;
+}
+
+/**
+ * Procura a ocorrência agendada da mesma recorrência (mesma conta/cartão, sentido e categoria, até
+ * 7 dias de distância e valor até 25% diferente) e a marca como paga com os valores reais.
+ */
+async function reconcileWithScheduled(tx: Tx, actor: Actor, it: NewTransaction, draftId?: string | null): Promise<string | null> {
+  if (!it.categoryId) return null;
+  const lo = Math.round(it.amountCents * 0.75);
+  const hi = Math.round(it.amountCents * 1.25);
+  const match = await sql<{ id: string }>`
+    select t.id from transactions t
+    where t.workspace_id = ${actor.workspaceId}::uuid and t.status = 'scheduled' and t.recurrence_id is not null
+      and t.direction = ${it.direction} and t.category_id = ${it.categoryId}::uuid
+      and ${it.accountId ? sql`t.account_id = ${it.accountId}::uuid` : sql`t.card_id = ${it.cardId ?? null}::uuid`}
+      and t.date between (${it.date}::date - 7) and (${it.date}::date + 7)
+      and t.amount_cents between ${lo} and ${hi}
+    order by abs(t.date - ${it.date}::date), abs(t.amount_cents - ${it.amountCents}) limit 1`.execute(tx);
+  const id = match.rows[0]?.id;
+  if (!id) return null;
+  const before = await tx.selectFrom('transactions').selectAll().where('id', '=', id).executeTakeFirstOrThrow();
+  const after = await tx
+    .updateTable('transactions')
+    .set({ status: 'posted', date: it.date, amountCents: it.amountCents, source: it.source ?? before.source, attachmentId: it.attachmentId ?? before.attachmentId })
+    .where('id', '=', id)
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  await audit(tx, actor, { action: 'update', entity: 'transactions', entityId: id, before: [before], after: [after], draftId });
+  return id;
 }
 
 /** "TV 03/10" ou "TV (3/10)" → "TV" */

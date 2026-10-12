@@ -57,6 +57,19 @@ services:
     volumes:
       - evolution_instances:/evolution/instances
 
+  migrate:
+    image: amacneil/dbmate:2.36
+    profiles: [full]
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/saude_financeira?sslmode=disable
+      DBMATE_MIGRATIONS_DIR: /db/migrations
+      DBMATE_NO_DUMP_SCHEMA: 'true'
+    command: ['--wait', 'up']
+    volumes:
+      - ./db/migrations:/db/migrations:ro
+
   api:
     build: { context: ., dockerfile: apps/api/Dockerfile }
     profiles: [full]
@@ -66,9 +79,11 @@ services:
       DATABASE_URL: postgresql://app_user:${APP_USER_PASSWORD:-app_user}@postgres:5432/saude_financeira
       FILES_DIR: /data/files
       SMTP_HOST: mailpit
+      SMTP_PORT: 1025
       EVOLUTION_URL: http://evolution:8080
     depends_on:
       postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
     ports:
       - '${API_PORT:-4100}:4100'
     volumes:
@@ -84,9 +99,11 @@ services:
       WORKER_DATABASE_URL: postgresql://app_worker:${APP_WORKER_PASSWORD:-app_worker}@postgres:5432/saude_financeira
       FILES_DIR: /data/files
       SMTP_HOST: mailpit
+      SMTP_PORT: 1025
       EVOLUTION_URL: http://evolution:8080
     depends_on:
       postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
     volumes:
       - ./data/files:/data/files
 
