@@ -18,6 +18,10 @@ services:
       # Usadas só na primeira inicialização do volume (db/init/01-roles.sh)
       APP_USER_PASSWORD: ${APP_USER_PASSWORD:?defina APP_USER_PASSWORD}
       APP_WORKER_PASSWORD: ${APP_WORKER_PASSWORD:?defina APP_WORKER_PASSWORD}
+    # Acesso externo (DBeaver, pg_restore): por padrão só no localhost do servidor, via túnel SSH.
+    # Para expor na internet temporariamente: POSTGRES_PUBLISH=15432 no Environment (e remova depois).
+    ports:
+      - '${POSTGRES_PUBLISH:-127.0.0.1:15432}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

@@ -3,6 +3,7 @@ dist
 .env
 .env.*.local
 data/files/*
+data/export/
 !data/files/.gitkeep
 coverage
 playwright-report
