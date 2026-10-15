@@ -11,12 +11,14 @@ import {
   AllocationPanel,
   CardsPanel,
   CategoriesPanel,
+  EmergencyReservePanel,
   FlowsPanel,
   InsightsPanel,
   KpiRow,
   PensionPanel,
   PerformancePanel,
   ProjectionPanel,
+  SafeToSpendPanel,
   UpcomingPanel,
   UsdPanel,
 } from './panels';
@@ -98,6 +100,7 @@ export function DashboardPage() {
         <div className="@min-[620px]:col-span-2 @min-[1120px]:col-span-12">
           <KpiRow />
         </div>
+        {isEmpty ? null : <SafeToSpendPanel className="@min-[620px]:col-span-2 @min-[1120px]:col-span-12" />}
         <ProjectionPanel className="@min-[620px]:col-span-2 @min-[1120px]:col-span-12" />
         <InsightsPanel className="@min-[620px]:order-1 @min-[1120px]:col-span-4" />
         <FlowsPanel className="@min-[620px]:order-2 @min-[620px]:col-span-2 @min-[1120px]:col-span-7" />
@@ -106,6 +109,7 @@ export function DashboardPage() {
         <UsdPanel className="@min-[620px]:order-3 @min-[1120px]:col-span-4" />
         <PerformancePanel className="@min-[620px]:order-3 @min-[1120px]:col-span-4" />
         <UpcomingPanel className="@min-[620px]:order-1 @min-[1120px]:col-span-4" />
+        <EmergencyReservePanel className="@min-[620px]:order-1 @min-[1120px]:col-span-4" />
         <CardsPanel className="@min-[620px]:order-2 @min-[1120px]:order-1 @min-[1120px]:col-span-4" />
         <PensionPanel className="@min-[620px]:order-4 @min-[1120px]:col-span-6" />
         <AccountsPanel className="@min-[620px]:order-4 @min-[1120px]:col-span-6" />

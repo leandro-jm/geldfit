@@ -157,7 +157,8 @@ describe.skipIf(!hasDb)('Worker: lembrete acionável pelo WhatsApp', () => {
         workspaceId: ws,
         userId,
         kind: 'import_reminder',
-        fireAt: new Date(),
+        // relógio do Node pode estar à frente do Postgres (VM do Docker): garante que já venceu
+        fireAt: new Date(Date.now() - 60_000),
         dedupeKey: `t-import-${ws}`,
       })
       .execute();
@@ -199,5 +200,108 @@ describe.skipIf(!hasDb)('Worker: lembrete acionável pelo WhatsApp', () => {
       await env.owner.db.selectFrom('workspaces').select('id').where('id', '=', w2).executeTakeFirst(),
     ).toBeUndefined();
     void todayISO;
+  });
+});
+
+describe.skipIf(!hasDb)('Worker: alerta de conta que vai ficar negativa', () => {
+  let env: TestEnv;
+  let app: AppContext;
+  let wa: FakeWhatsApp;
+  let ctx: WorkerContext;
+  let userId: string;
+  let ws: string;
+  const phone = `5547${Math.floor(100000000 + Math.random() * 899999999)}`;
+
+  beforeAll(async () => {
+    env = setupEnv();
+    wa = new FakeWhatsApp();
+    app = { ...makeApp(env), whatsapp: wa };
+    ctx = { app, sys: env.owner.db, close: async () => {} };
+    userId = await env.createUser('Bia');
+    ws = await env.createWorkspace(userId, 'Casa Bia');
+    await env.owner.db
+      .updateTable('workspaceSettings')
+      .set({ reminderTime: '00:00', quietStart: '00:00', quietEnd: '00:00' })
+      .where('workspaceId', '=', ws)
+      .execute();
+    await env.owner.db
+      .insertInto('userChannels')
+      .values({ userId, kind: 'whatsapp', address: phone, verifiedAt: new Date(), defaultWorkspaceId: ws })
+      .execute();
+  });
+  afterAll(async () => env?.cleanup());
+
+  it('avisa a data e a causa, propõe a transferência e "sim" registra agendada', async () => {
+    const today = (await sql<{ d: string }>`select ws_today(${ws}::uuid)::text as d`.execute(env.owner.db))
+      .rows[0]!.d;
+    const bb = await env.as(userId, (tx) =>
+      insertAccount(tx, ws, { name: 'BB', openingBalanceCents: 100_000, openingDate: addDays(today, -1) }),
+    );
+    const cresol = await env.as(userId, (tx) =>
+      insertAccount(tx, ws, {
+        name: 'Cresol',
+        openingBalanceCents: 800_000,
+        openingDate: addDays(today, -1),
+      }),
+    );
+    await env.as(userId, (tx) =>
+      insertTx(tx, ws, {
+        accountId: bb,
+        date: addDays(today, 6),
+        amountCents: 250_000,
+        direction: 'out',
+        status: 'scheduled',
+        description: 'Aluguel',
+      }),
+    );
+
+    await refreshWorkspace(ctx, ws);
+    await refreshWorkspace(ctx, ws); // idempotente: um alerta por conta e data
+    const alerts = await env.owner.db
+      .selectFrom('reminders')
+      .select(['dedupeKey'])
+      .where('userId', '=', userId)
+      .where('kind', '=', 'balance_alert')
+      .execute();
+    expect(alerts.map((a) => a.dedupeKey)).toEqual([
+      `account_shortfall:${bb}:${addDays(today, 6)}:${userId}`,
+    ]);
+
+    await dispatchReminders(ctx);
+    const msg = wa.sent.at(-1)!.text;
+    expect(msg).toContain('a conta BB fica em −R$ 1.500,00');
+    expect(msg).toContain('(Aluguel R$ 2.500,00)');
+    expect(msg).toContain('R$ 1.500,00 da Cresol');
+    expect(msg).toMatch(/Responda \*sim\*/);
+
+    await handleInbound(app, {
+      messageId: `s-${Date.now()}`,
+      from: phone,
+      timestamp: 0,
+      kind: 'text',
+      text: 'sim',
+      raw: {},
+    });
+    const transfer = await env.as(userId, (tx) =>
+      tx
+        .selectFrom('transactions')
+        .select(['accountId', 'direction', 'amountCents', 'status', 'date'])
+        .where('kind', '=', 'transfer')
+        .orderBy('direction')
+        .execute(),
+    );
+    expect(transfer).toEqual([
+      { accountId: bb, direction: 'in', amountCents: 150_000, status: 'scheduled', date: addDays(today, 5) },
+      {
+        accountId: cresol,
+        direction: 'out',
+        amountCents: 150_000,
+        status: 'scheduled',
+        date: addDays(today, 5),
+      },
+    ]);
+    // coberto: o próximo recálculo não acusa mais nada
+    const { accountShortfalls } = await import('@sf/api/domain/forecast');
+    expect(await env.as(userId, (tx) => accountShortfalls(tx, ws, today))).toEqual([]);
   });
 });

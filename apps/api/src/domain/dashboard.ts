@@ -38,10 +38,10 @@ export async function dashboardSummary(tx: Tx, ws: string, today: string): Promi
   const accounts = await listAccounts(tx, ws, today);
   const accountsBalanceCents = accounts
     .filter((a) => a.type !== 'investment')
-    .reduce((s, a) => s + a.balanceCents, 0);
+    .reduce((s, a) => s + a.balanceBrlCents, 0);
   const investmentAccounts = accounts
     .filter((a) => a.type === 'investment')
-    .reduce((s, a) => s + a.balanceCents, 0);
+    .reduce((s, a) => s + a.balanceBrlCents, 0);
   const openBillsCents = await openBillsAt(tx, ws, today);
   const pf = await portfolioValueAt(tx, ws, today);
   const investmentsCents = pf.valueCents + investmentAccounts;
@@ -50,12 +50,12 @@ export async function dashboardSummary(tx: Tx, ws: string, today: string): Promi
 
   const prevEnd = addDays(startOfMonth(today), -1);
   const prevBalances = await sql<{ cents: number }>`
-    select coalesce(sum(account_balance(a.id, ${prevEnd}::date)), 0)::bigint as cents from accounts a
+    select coalesce(sum(account_balance_brl(a.id, ${prevEnd}::date)), 0)::bigint as cents from accounts a
     where a.workspace_id = ${ws}::uuid and a.archived_at is null and a.type <> 'investment' and a.opening_date <= ${prevEnd}::date`.execute(
     tx,
   );
   const prevInvAccounts = await sql<{ cents: number }>`
-    select coalesce(sum(account_balance(a.id, ${prevEnd}::date)), 0)::bigint as cents from accounts a
+    select coalesce(sum(account_balance_brl(a.id, ${prevEnd}::date)), 0)::bigint as cents from accounts a
     where a.workspace_id = ${ws}::uuid and a.archived_at is null and a.type = 'investment' and a.opening_date <= ${prevEnd}::date`.execute(
     tx,
   );
@@ -111,8 +111,8 @@ export async function monthlyFlows(tx: Tx, ws: string, today: string): Promise<M
   const from = addMonths(m0, -11);
   const rows = await sql<{ month: string; inc: number; exp: number }>`
     select to_char(date_trunc('month', date), 'YYYY-MM-01') as month,
-      coalesce(sum(case when direction = 'in' then amount_cents end), 0)::bigint as inc,
-      coalesce(sum(case when direction = 'out' then amount_cents end), 0)::bigint as exp
+      coalesce(sum(case when direction = 'in' then amount_brl_cents end), 0)::bigint as inc,
+      coalesce(sum(case when direction = 'out' then amount_brl_cents end), 0)::bigint as exp
     from transactions where workspace_id = ${ws}::uuid and status = 'posted' and kind = 'regular' and date >= ${from}::date and date <= ${today}::date
     group by 1`.execute(tx);
   const realized: MonthlyFlow[] = Array.from({ length: 12 }, (_, i) => {
@@ -142,8 +142,8 @@ export async function categorySpend(tx: Tx, ws: string, today: string): Promise<
     budget: number | null;
   }>`
     select t.category_id as "categoryId", c.name,
-      coalesce(sum(case when t.date >= ${m0}::date then t.amount_cents end), 0)::bigint as cur,
-      coalesce(sum(case when t.date < ${m0}::date then t.amount_cents end), 0)::bigint as prev,
+      coalesce(sum(case when t.date >= ${m0}::date then t.amount_brl_cents end), 0)::bigint as cur,
+      coalesce(sum(case when t.date < ${m0}::date then t.amount_brl_cents end), 0)::bigint as prev,
       (select b.amount_cents from budgets b where b.workspace_id = ${ws}::uuid and b.category_id = t.category_id) as budget
     from transactions t left join categories c on c.id = t.category_id
     where t.workspace_id = ${ws}::uuid and t.direction = 'out' and t.kind = 'regular' and t.status = 'posted'

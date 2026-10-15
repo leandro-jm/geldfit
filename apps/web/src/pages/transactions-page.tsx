@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Check, ChevronLeft, ChevronRight, Download, Pencil, Search, Trash2, X } from 'lucide-react';
+import {
+  ArrowLeftRight,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { toast } from 'sonner';
-import { formatBRL, formatDateBR, parseAmount, type CategoryDTO, type TransactionDTO } from '@sf/shared';
+import { formatDateBR, formatMoney, parseAmount, type CategoryDTO, type TransactionDTO } from '@sf/shared';
 import { useFilters } from '@/lib/filters';
 import {
   useAccounts,
@@ -21,6 +32,8 @@ import { ConfirmDialog, ResponsiveDialog } from '@/components/ui/dialog';
 import { Field, Input, Select } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Money } from '@/components/common/money';
+import { TransferDialog } from '@/components/common/transfer-dialog';
+import { NewTransactionDialog } from '@/components/common/new-transaction-dialog';
 import { EmptyState, ErrorState, PageHeader } from '@/components/common/states';
 
 const PAGE = 50;
@@ -135,6 +148,7 @@ function TxRow({
   const [e, setE] = useState<EditState>(() => toEdit(t));
   const { save, markPaid, pending } = useTxActions();
   useEffect(() => setE(toEdit(t)), [t]);
+  const isTransfer = t.kind === 'transfer';
 
   const submit = async (ev?: FormEvent) => {
     ev?.preventDefault();
@@ -146,7 +160,12 @@ function TxRow({
       <tr className="border-t bg-primary-soft/30">
         <td className="px-3 py-2" colSpan={6}>
           <form
-            className="grid grid-cols-[140px_minmax(0,1fr)_200px_140px_auto] items-end gap-2"
+            className={cn(
+              'grid items-end gap-2',
+              isTransfer
+                ? 'grid-cols-[140px_minmax(0,1fr)_140px_auto]'
+                : 'grid-cols-[140px_minmax(0,1fr)_200px_140px_auto]',
+            )}
             onSubmit={submit}
             onKeyDown={(k) => k.key === 'Escape' && setEditing(false)}
           >
@@ -166,16 +185,18 @@ function TxRow({
                 autoFocus
               />
             </Field>
-            <Field label="Categoria" htmlFor={`c-${t.id}`}>
-              <CategorySelect
-                id={`c-${t.id}`}
-                value={e.categoryId}
-                onChange={(v) => setE({ ...e, categoryId: v })}
-                categories={categories}
-                direction={t.direction}
-              />
-            </Field>
-            <Field label="Valor (R$)" htmlFor={`a-${t.id}`}>
+            {isTransfer ? null : (
+              <Field label="Categoria" htmlFor={`c-${t.id}`}>
+                <CategorySelect
+                  id={`c-${t.id}`}
+                  value={e.categoryId}
+                  onChange={(v) => setE({ ...e, categoryId: v })}
+                  categories={categories}
+                  direction={t.direction}
+                />
+              </Field>
+            )}
+            <Field label={`Valor (${t.currency === 'USD' ? 'US$' : 'R$'})`} htmlFor={`a-${t.id}`}>
               <Input
                 id={`a-${t.id}`}
                 inputMode="decimal"
@@ -230,8 +251,9 @@ function TxRow({
       <td className="whitespace-nowrap px-3 py-2.5 text-right font-medium">
         <Money
           cents={t.amountCents}
+          currency={t.currency}
           direction={t.direction}
-          tone={t.direction === 'in' ? 'positive' : undefined}
+          tone={t.kind === 'transfer' ? 'muted' : t.direction === 'in' ? 'positive' : undefined}
         />
       </td>
       <td className="w-[1%] whitespace-nowrap px-2 py-1 text-right">
@@ -299,7 +321,7 @@ function EditSheet({
       open
       onOpenChange={(o) => !o && onClose()}
       title="Editar lançamento"
-      description={`${formatDateBR(t.date)} · ${formatBRL(t.amountCents)}`}
+      description={`${formatDateBR(t.date)} · ${formatMoney(t.amountCents, t.currency)}`}
       footer={
         canWrite ? (
           <>
@@ -322,17 +344,24 @@ function EditSheet({
             disabled={!canWrite}
           />
         </Field>
-        <Field label="Categoria" htmlFor="sheet-cat">
-          <CategorySelect
-            id="sheet-cat"
-            value={e.categoryId}
-            onChange={(v) => setE({ ...e, categoryId: v })}
-            categories={categories}
-            direction={t.direction}
-          />
-        </Field>
+        {t.kind === 'transfer' ? (
+          <p className="text-[12.5px] text-muted-foreground">
+            Transferência: data, descrição e valor também mudam na outra conta (entre moedas, o valor recebido
+            fica como está).
+          </p>
+        ) : (
+          <Field label="Categoria" htmlFor="sheet-cat">
+            <CategorySelect
+              id="sheet-cat"
+              value={e.categoryId}
+              onChange={(v) => setE({ ...e, categoryId: v })}
+              categories={categories}
+              direction={t.direction}
+            />
+          </Field>
+        )}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Valor (R$)" htmlFor="sheet-amount">
+          <Field label={`Valor (${t.currency === 'USD' ? 'US$' : 'R$'})`} htmlFor="sheet-amount">
             <Input
               id="sheet-amount"
               inputMode="decimal"
@@ -374,6 +403,8 @@ export function TransactionsPage() {
   const [offset, setOffset] = useState(0);
   const [sheet, setSheet] = useState<TransactionDTO | null>(null);
   const [toDelete, setToDelete] = useState<TransactionDTO | null>(null);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
   const { remove, pending } = useTxActions();
 
   useEffect(() => {
@@ -409,7 +440,12 @@ export function TransactionsPage() {
 
   const items = tx.data?.items ?? [];
   const total = tx.data?.total ?? 0;
-  const sum = items.reduce((s, t) => s + (t.direction === 'in' ? t.amountCents : -t.amountCents), 0);
+  // Soma em reais: lançamentos de contas em dólar entram convertidos pela PTAX da data.
+  // Transferências só movem dinheiro entre contas, então ficam fora.
+  const sum = items.reduce(
+    (s, t) => (t.kind === 'transfer' ? s : s + (t.direction === 'in' ? t.amountBrlCents : -t.amountBrlCents)),
+    0,
+  );
 
   const exportCsv = async () => {
     try {
@@ -437,9 +473,21 @@ export function TransactionsPage() {
         title="Lançamentos"
         description="Clique na descrição para editar. Toda alteração fica no histórico e pode ser desfeita pelo chat (“desfaz”)."
         actions={
-          <Button variant="outline" size="sm" onClick={() => void exportCsv()}>
-            <Download aria-hidden /> Exportar CSV
-          </Button>
+          <>
+            {canWrite && (accounts.data?.length ?? 0) >= 2 ? (
+              <Button variant="outline" size="sm" onClick={() => setTransferOpen(true)}>
+                <ArrowLeftRight aria-hidden /> Transferir
+              </Button>
+            ) : null}
+            <Button variant="outline" size="sm" onClick={() => void exportCsv()}>
+              <Download aria-hidden /> Exportar CSV
+            </Button>
+            {canWrite && (accounts.data?.length || cards.data?.length) ? (
+              <Button size="sm" onClick={() => setNewOpen(true)}>
+                <Plus aria-hidden /> Novo lançamento
+              </Button>
+            ) : null}
+          </>
         }
       />
 
@@ -645,12 +693,14 @@ export function TransactionsPage() {
                             <Badge tone="outline">{`${t.installmentN}/${t.installmentTotal}`}</Badge>
                           ) : null}
                           {t.status === 'scheduled' ? <Badge tone="accent">agendado</Badge> : null}
+                          {t.kind === 'transfer' ? <Badge>transferência</Badge> : null}
                         </p>
                       </div>
                       <Money
                         cents={t.amountCents}
+                        currency={t.currency}
                         direction={t.direction}
-                        tone={t.direction === 'in' ? 'positive' : undefined}
+                        tone={t.kind === 'transfer' ? 'muted' : t.direction === 'in' ? 'positive' : undefined}
                         className="shrink-0 text-[14px] font-semibold"
                       />
                     </button>
@@ -692,13 +742,15 @@ export function TransactionsPage() {
         onClose={() => setSheet(null)}
         onDelete={(t) => setToDelete(t)}
       />
+      <TransferDialog open={transferOpen} onClose={() => setTransferOpen(false)} />
+      <NewTransactionDialog open={newOpen} onClose={() => setNewOpen(false)} defaultAccountId={accountId} />
       <ConfirmDialog
         open={Boolean(toDelete)}
         onOpenChange={(o) => !o && setToDelete(null)}
         title="Apagar lançamento?"
         description={
           toDelete
-            ? `${toDelete.description} · ${formatBRL(toDelete.amountCents)} em ${formatDateBR(toDelete.date)}. Dá para desfazer pelo chat.`
+            ? `${toDelete.description} · ${formatMoney(toDelete.amountCents, toDelete.currency)} em ${formatDateBR(toDelete.date)}.${toDelete.kind === 'transfer' ? ' A entrada na outra conta também sai.' : ''} Dá para desfazer pelo chat.`
             : undefined
         }
         confirmLabel="Apagar"

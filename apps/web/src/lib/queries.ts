@@ -6,6 +6,7 @@ import type {
   CategorySpend,
   DashboardSummary,
   DraftDTO,
+  EmergencyReserveDTO,
   InsightDTO,
   Me,
   MonthlyFlow,
@@ -13,6 +14,7 @@ import type {
   PortfolioDTO,
   ProjectionDTO,
   RecurrenceDTO,
+  SafeToSpendDTO,
   TransactionDTO,
   UpcomingItem,
 } from '@sf/shared';
@@ -72,6 +74,8 @@ function useWsQuery<T>(
 }
 
 export const useSummary = () => useWsQuery<DashboardSummary>('/api/dashboard/summary');
+export const useEmergencyReserve = () => useWsQuery<EmergencyReserveDTO>('/api/dashboard/emergency-reserve');
+export const useSafeToSpend = () => useWsQuery<SafeToSpendDTO>('/api/dashboard/safe-to-spend');
 export const useUpcoming = (days = 15) => useWsQuery<UpcomingItem[]>(`/api/dashboard/upcoming?days=${days}`);
 export const useFlows = () => useWsQuery<MonthlyFlow[]>('/api/dashboard/flows');
 export const useCategorySpend = () => useWsQuery<CategorySpend[]>('/api/dashboard/categories');

@@ -88,6 +88,27 @@ PUBLIC_API_URL=http://seu-dominio
 
 Anexos ficam em `./data/files`, criptografados com AES-256-GCM (`FILES_ENCRYPTION_KEY`). Faça backup da chave junto com o banco: sem ela os arquivos não podem ser lidos.
 
+## Deploy no Dokploy
+
+O Dokploy clona o repositório do GitHub, faz o build das imagens e sobe tudo com [docker-compose.dokploy.yml](docker-compose.dokploy.yml). Nada é publicado em porta do host: o Traefik do Dokploy entrega o domínio ao serviço `web` (nginx), que serve a SPA e faz proxy de `/api` para a API.
+
+1. **Create Service → Compose** (tipo *Docker Compose*). Em *Provider*, escolha GitHub, o repositório e a branch `main`. Em *Compose Path*, coloque `./docker-compose.dokploy.yml`.
+2. Em **Environment**, cole o conteúdo de [.env.dokploy.example](.env.dokploy.example) preenchido. As obrigatórias são `APP_URL`, as três senhas do banco (só letras e números, porque entram em URLs de conexão), `BETTER_AUTH_SECRET`, `FILES_ENCRYPTION_KEY` e `FILES_URL_SECRET`.
+
+3. Em **Domains**, adicione o domínio com *Service* `web`, *Container Port* `80` e HTTPS (Let's Encrypt). O DNS (registro A) precisa apontar para o servidor.
+4. **Deploy**. Para deploy a cada push, deixe *Autodeploy* ligado (com o GitHub App do Dokploy é automático; com outro provedor, use a *Webhook URL* da aba *Deployments* no GitHub).
+
+A cada deploy o serviço `migrate` aplica as migrations novas antes de API e worker subirem. Banco, anexos e sessão do WhatsApp ficam nos volumes `pgdata`, `files` e `evolution_instances`; configure backup deles em *Volume Backups*, e guarde a `FILES_ENCRYPTION_KEY` junto. `APP_USER_PASSWORD` e `APP_WORKER_PASSWORD` só são aplicadas na primeira criação do volume do banco: para trocar depois, use `ALTER ROLE` no Postgres.
+
+**WhatsApp:** com `COMPOSE_PROFILES=whatsapp`, Evolution e Redis sobem junto, e a API fala com a Evolution pela rede interna (`http://evolution:8080`). Para parear o número, adicione um segundo domínio no Dokploy para o serviço `evolution`, porta `8080` (ex.: `evo.seudominio.com`), defina `EVOLUTION_PUBLIC_URL` com essa URL e rode na sua máquina:
+
+```bash
+EVOLUTION_URL=https://evo.seudominio.com EVOLUTION_WEBHOOK_URL=http://api:4100 \
+EVOLUTION_API_KEY=... EVOLUTION_WEBHOOK_SECRET=... pnpm whatsapp:setup
+```
+
+O webhook aponta para `http://api:4100` porque quem chama é o container da Evolution, na mesma rede da API. O painel da Evolution fica protegido só pela `EVOLUTION_API_KEY`; depois de parear, você pode remover esse domínio.
+
 ## LGPD
 
 - Consentimento explícito no primeiro acesso (termos, privacidade e processamento por LLM).

@@ -16,8 +16,17 @@ const schema = z.object({
   FILES_URL_SECRET: z.string().min(16),
   SMTP_HOST: z.string().default('localhost'),
   SMTP_PORT: z.coerce.number().default(1025),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  /** TLS direto (porta 465). Na 587 o STARTTLS é negociado automaticamente. */
+  SMTP_SECURE: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
   SMTP_FROM: z.string().default('Saúde Financeira <nao-responda@localhost>'),
   LLM_PROVIDER: z.enum(['anthropic', 'fake']).default('anthropic'),
+  /** Custo do provedor de transcrição em US$ por minuto (só para o registro de custo). */
+  TRANSCRIBE_USD_PER_MIN: z.coerce.number().default(0.006),
   EVOLUTION_URL: z.string().default('http://localhost:8085'),
   EVOLUTION_API_KEY: z.string().default(''),
   EVOLUTION_INSTANCE: z.string().default('saude-financeira'),

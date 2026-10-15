@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { extractText, getDocumentProxy } from 'unpdf';
-import { maskDeep, maskSensitive } from '@sf/shared';
+import { maskDeep, maskSensitive, parsePaymentCode, todayISO } from '@sf/shared';
 import type { LLMContent, LLMProvider, Usage } from '@sf/llm';
 
 /** JSON estruturado extraído de um documento financeiro. Valores em centavos, datas ISO. */
@@ -12,6 +12,7 @@ export const ExtractedDoc = z.object({
     'brokerage_note',
     'position_statement',
     'receipt',
+    'boleto',
     'unknown',
   ]),
   institution: z.string().nullable(),
@@ -68,6 +69,20 @@ export const ExtractedDoc = z.object({
     }),
   ),
   notes: z.string().nullable(),
+  // Boletos e contas a pagar (luz, água, condomínio...). Opcional: leituras antigas não têm o campo.
+  payment: z
+    .object({
+      barcode_line: z
+        .string()
+        .nullable()
+        .describe('Linha digitável ou código de barras, só os dígitos, exatamente como impresso'),
+      pix_code: z.string().nullable().describe('Pix copia e cola impresso no documento, se houver'),
+      amount_cents: z.number().int().nullable(),
+      due_date: z.string().nullable().describe('Vencimento AAAA-MM-DD'),
+      payee: z.string().nullable().describe('Beneficiário / empresa'),
+    })
+    .nullable()
+    .optional(),
 });
 export type ExtractedDoc = z.infer<typeof ExtractedDoc>;
 
@@ -80,7 +95,8 @@ Regras:
 - Em faturas: cada compra é "out"; estornos e créditos são "in"; o pagamento da fatura anterior tem is_bill_payment=true. Parcelas "03/10" → installment_n=3, installment_total=10, amount = valor da parcela.
 - Nunca copie número completo de cartão, CPF ou senha: use só os 4 últimos dígitos.
 - Não invente: campo ausente = null. Itens ilegíveis ficam com confidence baixa.
-- Em notas de corretagem, rateie as taxas totais entre as operações proporcionalmente ao valor.`;
+- Em notas de corretagem, rateie as taxas totais entre as operações proporcionalmente ao valor.
+- Boleto ou conta a pagar (luz, água, telefone, condomínio, mensalidade): doc_type "boleto", sem itens em transactions; preencha payment com a linha digitável (só dígitos, sem pontos nem espaços), valor, vencimento e beneficiário. Fatura de cartão continua sendo "card_bill", mesmo que traga um boleto para pagamento.`;
 
 const MAX_TEXT = 180_000;
 
@@ -101,9 +117,14 @@ export async function extractWithLLM(
 ): Promise<{ doc: ExtractedDoc; usage: Usage; model: string; pages: number }> {
   const content: LLMContent[] = [];
   let pages = 1;
+  // Código de pagamento lido do texto do PDF antes de mascarar (a máscara de cartão pode confundir
+  // trechos da linha digitável) e sem depender da leitura do modelo.
+  let barcode: string | null = null;
   if (file.mime === 'application/pdf') {
     const { text, pages: p } = await pdfText(file.data);
     pages = p;
+    const found = parsePaymentCode(text, todayISO());
+    if (found.ok && found.code.barcode) barcode = found.code.barcode;
     if (text.replace(/\s/g, '').length > 200) {
       content.push({
         type: 'text',
@@ -135,5 +156,14 @@ export async function extractWithLLM(
     purpose: 'extract',
     maxTokens: 32_000,
   });
-  return { doc: maskDeep(res.data), usage: res.usage, model: res.model, pages };
+  const doc = maskDeep(res.data);
+  if (doc.doc_type === 'boleto' && barcode)
+    doc.payment = {
+      barcode_line: barcode,
+      pix_code: doc.payment?.pix_code ?? null,
+      amount_cents: doc.payment?.amount_cents ?? null,
+      due_date: doc.payment?.due_date ?? null,
+      payee: doc.payment?.payee ?? null,
+    };
+  return { doc, usage: res.usage, model: res.model, pages };
 }

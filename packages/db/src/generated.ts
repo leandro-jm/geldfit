@@ -29,6 +29,7 @@ export interface Accounts {
   archivedAt: Timestamp | null;
   createdAt: Generated<Timestamp>;
   createdBy: string | null;
+  currency: Generated<string>;
   id: Generated<string>;
   institution: string;
   isPrivate: Generated<boolean>;
@@ -463,6 +464,7 @@ export interface Trades {
 
 export interface Transactions {
   accountId: string | null;
+  amountBrlCents: Generated<number>;
   amountCents: number;
   attachmentId: string | null;
   cardId: string | null;

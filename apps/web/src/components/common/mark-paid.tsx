@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { formatBRL, parseAmount, type UpcomingItem } from '@sf/shared';
 import { useAccounts, useAction } from '@/lib/queries';
@@ -34,6 +34,11 @@ export function useMarkPaid() {
 
 function StatementPaymentDialog({ item, onClose }: { item: UpcomingItem | null; onClose: () => void }) {
   const accounts = useAccounts();
+  // A fatura é em reais: só conta em reais pode pagá-la
+  const brlAccounts = useMemo(
+    () => (accounts.data ?? []).filter((a) => a.currency === 'BRL'),
+    [accounts.data],
+  );
   const action = useAction();
   const [accountId, setAccountId] = useState('');
   const [amount, setAmount] = useState('');
@@ -41,11 +46,11 @@ function StatementPaymentDialog({ item, onClose }: { item: UpcomingItem | null; 
 
   useEffect(() => {
     if (!item) return;
-    const match = accounts.data?.find((a) => a.id === item.accountId) ?? accounts.data?.[0];
+    const match = brlAccounts.find((a) => a.id === item.accountId) ?? brlAccounts[0];
     setAccountId(match?.id ?? '');
     setAmount((item.amountCents / 100).toFixed(2).replace('.', ','));
     setDate(todayLocalISO());
-  }, [item, accounts.data]);
+  }, [item, brlAccounts]);
 
   const cents = parseAmount(amount);
   const submit = async () => {
@@ -82,7 +87,7 @@ function StatementPaymentDialog({ item, onClose }: { item: UpcomingItem | null; 
       <div className="space-y-4">
         <Field label="Conta pagadora" htmlFor="pay-account">
           <Select id="pay-account" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            {(accounts.data ?? []).map((a) => (
+            {brlAccounts.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
               </option>

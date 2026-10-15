@@ -239,8 +239,10 @@ export async function buildPortfolio(tx: Tx, ws: string, today: string): Promise
   const accounts = await listAccounts(tx, ws, today);
   const cash = accounts
     .filter((a) => a.type !== 'investment')
-    .reduce((s, a) => s + Math.max(0, a.balanceCents), 0);
-  const invAccounts = accounts.filter((a) => a.type === 'investment').reduce((s, a) => s + a.balanceCents, 0);
+    .reduce((s, a) => s + Math.max(0, a.balanceBrlCents), 0);
+  const invAccounts = accounts
+    .filter((a) => a.type === 'investment')
+    .reduce((s, a) => s + a.balanceBrlCents, 0);
   const pension = await sql<{ cents: number }>`
     select coalesce(sum(balance_cents), 0)::bigint as cents from (
       select distinct on (plan_id) balance_cents from pension_entries where workspace_id = ${ws}::uuid order by plan_id, ref_month desc) x`.execute(

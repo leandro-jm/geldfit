@@ -37,6 +37,7 @@ export async function coreRoutes(f: FastifyInstance, app: AppContext, guards: { 
           role: w.role as Me['workspaces'][number]['role'],
         })),
         consented: Boolean(consent),
+        features: { audio: app.transcriber !== null },
       };
     });
   });

@@ -28,12 +28,14 @@ export async function listAccounts(
       'a.institution',
       'a.type',
       'a.name',
+      'a.currency',
       'a.openingBalanceCents',
       'a.openingDate',
       'a.isPrivate',
       'a.ownerUserId',
       'a.archivedAt',
       sql<number>`account_balance(a.id, ${today}::date)`.as('balanceCents'),
+      sql<number>`account_balance_brl(a.id, ${today}::date)`.as('balanceBrlCents'),
       eb
         .selectFrom('transactions as t')
         .select(sql<string>`max(t.date)::text`.as('d'))
@@ -45,6 +47,7 @@ export async function listAccounts(
     .orderBy('a.createdAt');
   if (!includeArchived) q = q.where('a.archivedAt', 'is', null);
   const rows = await q.execute();
+  const fx = rows.some((r) => r.currency === 'USD') ? await usdRate(tx, today) : null;
   return rows.map((r) => {
     const last = r.lastActivityDate ?? r.openingDate;
     return {
@@ -52,16 +55,33 @@ export async function listAccounts(
       institution: r.institution,
       type: r.type as AccountDTO['type'],
       name: r.name,
+      currency: r.currency as AccountDTO['currency'],
       openingBalanceCents: r.openingBalanceCents,
       openingDate: r.openingDate,
       isPrivate: r.isPrivate,
       ownerUserId: r.ownerUserId,
       balanceCents: Number(r.balanceCents),
+      balanceBrlCents: Number(r.balanceBrlCents),
+      fx: r.currency === 'USD' ? fx : null,
       lastActivityDate: r.lastActivityDate,
       stale: diffDays(today, last) > 30,
       archivedAt: r.archivedAt ? new Date(r.archivedAt).toISOString() : null,
     };
   });
+}
+
+/** PTAX usada na conversão em `usd_brl_rate`: a mais recente até a data, senão a mais antiga. */
+export async function usdRate(tx: Tx, at: string): Promise<{ rate: number; date: string } | null> {
+  const row = await tx
+    .selectFrom('benchmarks')
+    .select(['value', sql<string>`date::text`.as('date')])
+    .where('series', '=', 'PTAX_USD')
+    .orderBy(sql`date <= ${at}::date`, 'desc')
+    .orderBy(sql`case when date <= ${at}::date then date end`, 'desc')
+    .orderBy('date')
+    .limit(1)
+    .executeTakeFirst();
+  return row ? { rate: Number(row.value), date: row.date } : null;
 }
 
 export async function listStatements(
@@ -178,8 +198,9 @@ export async function queryTransactions(
   f: TxFilter,
 ): Promise<{ items: TransactionDTO[]; total: number }> {
   const rows = await txQuery(tx, ws, f)
+    .leftJoin('accounts as a', 'a.id', 't.accountId')
     .selectAll('t')
-    .select('c.name as categoryName')
+    .select(['c.name as categoryName', sql<string>`coalesce(a.currency, 'BRL')`.as('currency')])
     .orderBy('t.date', 'desc')
     .orderBy('t.createdAt', 'desc')
     .limit(f.limit ?? 50)
@@ -196,6 +217,8 @@ export async function queryTransactions(
       cardId: r.cardId,
       date: r.date,
       amountCents: r.amountCents,
+      amountBrlCents: r.amountBrlCents,
+      currency: r.currency as TransactionDTO['currency'],
       direction: r.direction as 'in' | 'out',
       kind: r.kind as TransactionDTO['kind'],
       categoryId: r.categoryId,
@@ -224,10 +247,10 @@ export async function aggregateTransactions(
   if (by === 'sum') {
     const r = await base
       .select([
-        sql<number>`coalesce(sum(case when t.direction = 'out' then t.amount_cents else 0 end), 0)::bigint`.as(
+        sql<number>`coalesce(sum(case when t.direction = 'out' then t.amount_brl_cents else 0 end), 0)::bigint`.as(
           'outCents',
         ),
-        sql<number>`coalesce(sum(case when t.direction = 'in' then t.amount_cents else 0 end), 0)::bigint`.as(
+        sql<number>`coalesce(sum(case when t.direction = 'in' then t.amount_brl_cents else 0 end), 0)::bigint`.as(
           'inCents',
         ),
         sql<number>`count(*)::int`.as('count'),
@@ -239,20 +262,20 @@ export async function aggregateTransactions(
     return base
       .select([
         sql<string>`coalesce(c.name, 'Sem categoria')`.as('category'),
-        sql<number>`sum(t.amount_cents)::bigint`.as('cents'),
+        sql<number>`sum(t.amount_brl_cents)::bigint`.as('cents'),
         sql<number>`count(*)::int`.as('count'),
       ])
       .groupBy(sql`coalesce(c.name, 'Sem categoria')`)
-      .orderBy(sql`sum(t.amount_cents)`, 'desc')
+      .orderBy(sql`sum(t.amount_brl_cents)`, 'desc')
       .execute();
   }
   return base
     .select([
       sql<string>`to_char(date_trunc('month', t.date), 'YYYY-MM')`.as('month'),
-      sql<number>`coalesce(sum(case when t.direction = 'out' then t.amount_cents else 0 end), 0)::bigint`.as(
+      sql<number>`coalesce(sum(case when t.direction = 'out' then t.amount_brl_cents else 0 end), 0)::bigint`.as(
         'outCents',
       ),
-      sql<number>`coalesce(sum(case when t.direction = 'in' then t.amount_cents else 0 end), 0)::bigint`.as(
+      sql<number>`coalesce(sum(case when t.direction = 'in' then t.amount_brl_cents else 0 end), 0)::bigint`.as(
         'inCents',
       ),
     ])

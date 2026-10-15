@@ -172,7 +172,10 @@ function RecurrenceForm({
             placeholder="Ex.: Aluguel"
           />
         </Field>
-        <Field label="Valor (R$)" htmlFor="rec-amount">
+        <Field
+          label={`Valor (${accounts.data?.find((a) => `acc:${a.id}` === f.source)?.currency === 'USD' ? 'US$' : 'R$'})`}
+          htmlFor="rec-amount"
+        >
           <Input
             id="rec-amount"
             inputMode="decimal"
@@ -320,13 +323,17 @@ export function RecurrencesPage() {
     (r.cardId
       ? cards.data?.find((c) => c.id === r.cardId)?.name
       : accounts.data?.find((a) => a.id === r.accountId)?.name) ?? '—';
+  const account = (r: RecurrenceDTO) =>
+    r.accountId ? accounts.data?.find((a) => a.id === r.accountId) : null;
+  // Totais em reais: recorrência de conta em dólar entra pela PTAX atual
+  const brl = (r: RecurrenceDTO) => Math.round(r.amountCents * (account(r)?.fx?.rate ?? 1));
   const list = q.data ?? [];
   const monthlyIn = list
     .filter((r) => r.direction === 'in' && r.rule.includes('MONTHLY') && !r.pausedAt)
-    .reduce((s, r) => s + r.amountCents, 0);
+    .reduce((s, r) => s + brl(r), 0);
   const monthlyOut = list
     .filter((r) => r.direction === 'out' && r.rule.includes('MONTHLY') && !r.pausedAt)
-    .reduce((s, r) => s + r.amountCents, 0);
+    .reduce((s, r) => s + brl(r), 0);
 
   return (
     <div>
@@ -381,6 +388,7 @@ export function RecurrencesPage() {
               </div>
               <Money
                 cents={r.amountCents}
+                currency={account(r)?.currency}
                 direction={r.direction}
                 tone={r.direction === 'in' ? 'positive' : undefined}
                 className="shrink-0 text-[14px] font-semibold"

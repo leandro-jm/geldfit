@@ -32,7 +32,9 @@ export function defineTool<S extends z.ZodType>(t: AgentTool<S>): AgentTool<S> {
 // Entradas tolerantes: o modelo pode mandar "2,3k", 230 ou "duzentos e trinta"
 export const amountInput = z
   .union([z.number(), z.string()])
-  .describe('Valor em reais: número (230.5) ou texto pt-BR ("2,3k", "1.234,56", "duzentos e trinta")');
+  .describe(
+    'Valor na moeda da conta (reais; dólares se a conta for em USD): número (230.5) ou texto pt-BR ("2,3k", "1.234,56", "duzentos e trinta")',
+  );
 export const dateInput = z
   .string()
   .describe('Data ISO (AAAA-MM-DD) ou relativa em pt-BR ("hoje", "ontem", "dia 5", "05/10")');

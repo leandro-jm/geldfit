@@ -61,8 +61,12 @@ export function DraftCard({ draft }: { draft: DraftDTO }) {
             <span className="font-medium">
               {p.totals.count} {p.totals.count === 1 ? 'lançamento' : 'lançamentos'}
             </span>
-            <span className="text-muted-foreground">·</span>
-            <Money cents={p.totals.amountCents} className="font-medium" />
+            {p.totals.currency !== null ? (
+              <>
+                <span className="text-muted-foreground">·</span>
+                <Money cents={p.totals.amountCents} currency={p.totals.currency} className="font-medium" />
+              </>
+            ) : null}
             {p.totals.duplicates > 0 ? (
               <Badge tone="warning">
                 <Copy aria-hidden /> {p.totals.duplicates} possíveis duplicatas
@@ -112,6 +116,7 @@ export function DraftCard({ draft }: { draft: DraftDTO }) {
                 </div>
                 <Money
                   cents={it.amountCents}
+                  currency={it.currency}
                   direction={it.direction}
                   tone={it.direction === 'in' ? 'positive' : undefined}
                   className="shrink-0 text-[13px] font-medium"

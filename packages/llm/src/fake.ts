@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { z } from 'zod';
-import { fold, parseAmount } from '@sf/shared';
+import { fold, hasPaymentCode, parseAmount } from '@sf/shared';
 import {
   LLMError,
   textOf,
@@ -87,6 +87,12 @@ const AMOUNT = String.raw`(?:r\$\s*)?(\d[\d.,]*(?:\s*(?:k|mil|mi)\b)?)`;
 /** Mapeia frases comuns para chamadas de tool. */
 export function route(raw: string): { name: string; input: Record<string, unknown> } | null {
   const s = fold(raw);
+
+  // linha digitável de boleto ou Pix copia e cola
+  if (hasPaymentCode(raw)) {
+    const account = s.match(/\b(?:no|na|pelo|pela)\s+([a-z0-9]+)\s*$/)?.[1] ?? null;
+    return { name: 'draft_bill', input: { code: raw, account } };
+  }
 
   // "todo dia 5 entra 8.500 de salário no BB"
   let m = s.match(
@@ -199,6 +205,26 @@ export function route(raw: string): { name: string; input: Record<string, unknow
   );
   if (m) return { name: 'draft_delete', input: m[1] ? { search: m[1].trim() } : { target: 'last' } };
   if (/^(desfaz|desfazer)/.test(s)) return { name: 'undo_last', input: {} };
+
+  // "posso comprar uma TV de 4.000 em 10x com 8% de desconto à vista?"
+  m = s.match(
+    new RegExp(
+      String.raw`posso comprar\s+(?:uma?\s+|o\s+|a\s+)?(.+?)\s+(?:de|por)\s+${AMOUNT}(?:\s+em\s+(\d{1,2})\s*x)?(?:.*?(\d{1,2})\s*%\s*de desconto)?`,
+    ),
+  );
+  if (m)
+    return {
+      name: 'evaluate_purchase',
+      input: {
+        description: cap(m[1]!),
+        price: m[2]!,
+        installments: m[3] ? Number(m[3]) : null,
+        cash_discount_pct: m[4] ? Number(m[4]) : null,
+      },
+    };
+  if (/quanto (?:eu )?posso gastar|tenho folga/.test(s)) return { name: 'get_safe_to_spend', input: {} };
+  if (/reserva de emergencia|sem salario|demitid|desligad|perder o emprego/.test(s))
+    return { name: 'get_emergency_reserve', input: {} };
 
   // "quanto sobra em dezembro?"
   m = s.match(

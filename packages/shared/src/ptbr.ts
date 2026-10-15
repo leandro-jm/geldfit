@@ -100,13 +100,15 @@ export function wordsToNumber(text: string): number | null {
 /**
  * Interpreta valores em pt-BR e devolve centavos:
  * "230", "230,50", "1.234,56", "R$ 3.600", "2,3k", "3 mil", "1,5 mi", "duzentos e trinta".
+ * Símbolo ou nome da moeda é ignorado ("US$ 200", "200 dólares"); a moeda vem da conta.
  */
 export function parseAmount(input: string | number): Cents | null {
   if (typeof input === 'number') return Number.isFinite(input) ? Math.round(input * 100) : null;
   let s = fold(input)
-    .replace(/r\$\s*/g, '')
+    .replace(/(r|us|u)?\$\s*/g, '')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim()
+    .replace(/\s*\b(reais|real|dolares|dolar|usd|brl)$/, '');
   if (!s) return null;
 
   const words = wordsToNumber(s);

@@ -1,5 +1,5 @@
 import type { Db } from '@sf/db';
-import type { LLMProvider } from '@sf/llm';
+import type { LLMProvider, Transcriber } from '@sf/llm';
 import type { Logger } from 'pino';
 import type { Config } from './config.js';
 import type { FileStorage } from './storage/file-storage.js';
@@ -11,6 +11,8 @@ export interface AppContext {
   config: Config;
   db: Db;
   llm: LLMProvider;
+  /** Transcrição de áudio (null quando não configurada). */
+  transcriber: Transcriber | null;
   storage: FileStorage;
   mailer: Mailer;
   whatsapp: MessagingChannel | null;

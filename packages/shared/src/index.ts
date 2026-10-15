@@ -3,4 +3,7 @@ export * from './dates.js';
 export * from './billing.js';
 export * from './ptbr.js';
 export * from './security.js';
+export * from './payments.js';
+export * from './purchase-math.js';
+export * from './goals.js';
 export * from './api-types.js';

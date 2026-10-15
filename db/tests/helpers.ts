@@ -74,6 +74,7 @@ export async function insertAccount(
     isPrivate?: boolean;
     ownerUserId?: string | null;
     type?: 'checking' | 'savings' | 'investment' | 'cash';
+    currency?: 'BRL' | 'USD';
   },
 ) {
   const r = await tx
@@ -82,6 +83,7 @@ export async function insertAccount(
       workspaceId: ws,
       institution: 'Banco do Brasil',
       type: v.type ?? 'checking',
+      currency: v.currency ?? 'BRL',
       name: v.name ?? 'BB',
       openingBalanceCents: v.openingBalanceCents,
       openingDate: v.openingDate,
@@ -93,6 +95,16 @@ export async function insertAccount(
     .returning('id')
     .executeTakeFirstOrThrow();
   return r.id;
+}
+
+/** PTAX de teste (tabela global, sem workspace): apague com `clearTestPtax` ao final. */
+export async function insertPtax(owner: Db, date: string, value: number) {
+  await sql`insert into benchmarks (series, date, value, source) values ('PTAX_USD', ${date}::date, ${value}, 'test')
+    on conflict (series, date) do update set value = excluded.value, source = excluded.source`.execute(owner);
+}
+
+export async function clearTestPtax(owner: Db) {
+  await sql`delete from benchmarks where series = 'PTAX_USD' and source = 'test'`.execute(owner);
 }
 
 export async function insertTx(

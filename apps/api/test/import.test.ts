@@ -252,6 +252,39 @@ describe.skipIf(!hasDb)('Importação pelo chat', () => {
     expect(app.storage.verifySignature('00000000-0000-0000-0000-000000000000', exp, sig)).toBe(false);
   });
 
+  it('limite mensal de anexos do plano: bloqueia arquivo novo, reenvio idêntico continua valendo', async () => {
+    const a = await newActor(env);
+    const first = await saveAttachment(app, a, {
+      data: Buffer.from('primeiro'),
+      filename: 'a.csv',
+      mime: 'text/csv',
+    });
+    // completa a cota do plano free (40) com anexos já existentes neste mês
+    await env.owner.db
+      .insertInto('attachments')
+      .values(
+        Array.from({ length: 39 }, (_, i) => ({
+          workspaceId: a.workspaceId,
+          uploadedBy: a.userId,
+          storageKey: `${a.workspaceId}/fake-${i}`,
+          filename: `f${i}.csv`,
+          mime: 'text/csv',
+          sizeBytes: 1,
+          sha256: `quota-${a.workspaceId}-${i}`,
+        })),
+      )
+      .execute();
+    await expect(
+      saveAttachment(app, a, { data: Buffer.from('novo'), filename: 'b.csv', mime: 'text/csv' }),
+    ).rejects.toMatchObject({ status: 429, code: 'plan_limit' });
+    const again = await saveAttachment(app, a, {
+      data: Buffer.from('primeiro'),
+      filename: 'a.csv',
+      mime: 'text/csv',
+    });
+    expect(again).toMatchObject({ id: first.id, duplicate: true });
+  });
+
   it('outro tenant não enxerga o anexo', async () => {
     const other = await newActor(env);
     const att = await saveAttachment(app, actor, {

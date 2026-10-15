@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { normalizeDescription, type DraftDTO, type DraftPreview } from '@sf/shared';
+import { normalizeDescription, type Currency, type DraftDTO, type DraftPreview } from '@sf/shared';
 import { sql, type Tx } from '@sf/db';
 import type { Actor } from '../context.js';
 import { AppError, forbidden, notFound } from '../lib/errors.js';
 import { audit } from './audit.js';
 import { insertTransactions, materializeRecurrence, workspaceToday } from './ledger.js';
 import { computeProjection, projectionImpact } from './projection.js';
+import { resolveCategory } from './resolve.js';
 
 const iso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const uuid = z.string().uuid();
@@ -32,6 +33,7 @@ const accountFields = z.object({
   institution: z.string().min(1).max(80),
   name: z.string().min(1).max(80),
   type: z.enum(['checking', 'savings', 'investment', 'cash']),
+  currency: z.enum(['BRL', 'USD']).default('BRL'),
   openingBalanceCents: cents,
   openingDate: iso,
   isPrivate: z.boolean().default(false),
@@ -93,11 +95,17 @@ const tradeItem = z.object({
 
 /** Schemas dos payloads por tipo de draft. O payload já vem com ids resolvidos. */
 export const DRAFT_SCHEMAS = {
-  transactions: z.object({ items: z.array(txItem).min(1).max(500) }),
+  transactions: z.object({
+    items: z.array(txItem).min(1).max(500),
+    // 'manual' = formulário da tela (sem categoria escolhida, aplica as regras de categorização)
+    source: z.enum(['chat', 'manual']).optional(),
+  }),
   transfer: z.object({
     fromAccountId: uuid,
     toAccountId: uuid,
     amountCents: cents.positive(),
+    // Valor recebido na moeda da conta de destino; obrigatório entre moedas diferentes (câmbio)
+    toAmountCents: cents.positive().nullish(),
     date: iso,
     description: z.string().max(200),
     status: z.enum(['posted', 'scheduled']).optional(),
@@ -373,11 +381,15 @@ async function applyDraft<K extends DraftKind>(
   const ws = actor.workspaceId;
   switch (kind) {
     case 'transactions': {
-      const { items } = p as DraftPayload<'transactions'>;
+      const { items, source = 'chat' } = p as DraftPayload<'transactions'>;
+      for (const i of items) {
+        if (!i.accountId === !i.cardId) throw new AppError(422, 'Escolha uma conta ou um cartão.');
+        if (source === 'manual' && !i.categoryId) i.categoryId = (await resolveCategory(tx, ws, i)).id;
+      }
       return insertTransactions(
         tx,
         actor,
-        items.map((i) => ({ ...i, source: 'chat' as const })),
+        items.map((i) => ({ ...i, source })),
         draftId,
       );
     }
@@ -407,6 +419,17 @@ async function applyDraft<K extends DraftKind>(
     }
     case 'transfer': {
       const t = p as DraftPayload<'transfer'>;
+      if (t.fromAccountId === t.toAccountId)
+        throw new AppError(422, 'Escolha contas diferentes para a transferência.');
+      const [fromCur, toCur] = [
+        await accountCurrency(tx, t.fromAccountId),
+        await accountCurrency(tx, t.toAccountId),
+      ];
+      if (fromCur !== toCur && !t.toAmountCents)
+        throw new AppError(
+          422,
+          'Transferência entre moedas diferentes: informe o valor recebido no destino.',
+        );
       const transferId = randomUUID();
       const base = {
         date: t.date,
@@ -421,13 +444,19 @@ async function applyDraft<K extends DraftKind>(
         actor,
         [
           { ...base, accountId: t.fromAccountId, direction: 'out' },
-          { ...base, accountId: t.toAccountId, direction: 'in' },
+          {
+            ...base,
+            accountId: t.toAccountId,
+            direction: 'in',
+            amountCents: fromCur !== toCur ? t.toAmountCents! : t.amountCents,
+          },
         ],
         draftId,
       );
     }
     case 'card_payment': {
       const t = p as DraftPayload<'card_payment'>;
+      await assertBRLAccount(tx, t.accountId, 'A fatura do cartão precisa ser paga por uma conta em reais.');
       const st = await tx
         .selectFrom('cardStatements')
         .innerJoin('cards', 'cards.id', 'cardStatements.cardId')
@@ -495,6 +524,20 @@ async function applyDraft<K extends DraftKind>(
         .where('id', 'in', t.transactionIds)
         .execute();
       if (before.length !== t.transactionIds.length) throw notFound('Lançamento');
+      const legs = before.filter((b) => b.transferId);
+      if (legs.length && (t.changes.accountId || t.changes.cardId || t.changes.categoryId))
+        throw new AppError(
+          422,
+          'Transferência não tem categoria nem troca de conta. Apague e faça de novo entre as contas certas.',
+        );
+      if (t.changes.accountId || t.changes.cardId) {
+        const target = t.changes.accountId ? await accountCurrency(tx, t.changes.accountId) : 'BRL';
+        for (const b of before) {
+          const current = b.accountId ? await accountCurrency(tx, b.accountId) : 'BRL';
+          if (current !== target)
+            throw new AppError(422, 'Não dá para mover um lançamento entre contas de moedas diferentes.');
+        }
+      }
       const after = [];
       for (const b of before) {
         const changes = { ...t.changes } as Record<string, unknown>;
@@ -506,6 +549,42 @@ async function applyDraft<K extends DraftKind>(
             .updateTable('transactions')
             .set(changes)
             .where('id', '=', b.id)
+            .returningAll()
+            .executeTakeFirstOrThrow(),
+        );
+      }
+      // Transferência anda em par: data, descrição e status vão para a outra perna; o valor só
+      // quando as duas contas têm a mesma moeda (entre moedas o valor recebido é outro)
+      const partners = legs.length
+        ? await tx
+            .selectFrom('transactions')
+            .selectAll()
+            .where(
+              'transferId',
+              'in',
+              legs.map((l) => l.transferId!),
+            )
+            .where('id', 'not in', t.transactionIds)
+            .execute()
+        : [];
+      for (const pr of partners) {
+        const leg = legs.find((l) => l.transferId === pr.transferId)!;
+        const changes: Record<string, unknown> = {};
+        if (t.changes.date) changes.date = t.changes.date;
+        if (t.changes.description !== undefined) changes.description = t.changes.description;
+        if (t.changes.status) changes.status = t.changes.status;
+        if (
+          t.changes.amountCents &&
+          (await accountCurrency(tx, leg.accountId!)) === (await accountCurrency(tx, pr.accountId!))
+        )
+          changes.amountCents = t.changes.amountCents;
+        if (!Object.keys(changes).length) continue;
+        before.push(pr);
+        after.push(
+          await tx
+            .updateTable('transactions')
+            .set(changes)
+            .where('id', '=', pr.id)
             .returningAll()
             .executeTakeFirstOrThrow(),
         );
@@ -627,6 +706,15 @@ async function applyDraft<K extends DraftKind>(
     case 'account': {
       const t = p as DraftPayload<'account'>;
       const fields = { ...t.fields, ownerUserId: t.fields.isPrivate ? actor.userId : null };
+      if (fields.currency === 'USD') {
+        const ptax = await tx
+          .selectFrom('benchmarks')
+          .select('date')
+          .where('series', '=', 'PTAX_USD')
+          .executeTakeFirst();
+        if (!ptax)
+          throw new AppError(422, 'A cotação do dólar ainda não foi carregada. Tente de novo mais tarde.');
+      }
       if (t.mode === 'create') {
         const row = await tx
           .insertInto('accounts')
@@ -644,6 +732,21 @@ async function applyDraft<K extends DraftKind>(
       }
       const before = await tx.selectFrom('accounts').selectAll().where('id', '=', t.id!).executeTakeFirst();
       if (!before) throw notFound('Conta');
+      if (before.currency !== fields.currency) {
+        const used = await tx
+          .selectFrom('transactions')
+          .select('id')
+          .where('accountId', '=', before.id)
+          .executeTakeFirst();
+        if (used) throw new AppError(422, 'Não dá para trocar a moeda de uma conta que já tem lançamentos.');
+        const card = await tx
+          .selectFrom('cards')
+          .select('id')
+          .where('accountId', '=', before.id)
+          .executeTakeFirst();
+        if (card)
+          throw new AppError(422, 'Esta conta paga a fatura de um cartão e precisa continuar em reais.');
+      }
       const row = await tx
         .updateTable('accounts')
         .set(fields)
@@ -663,6 +766,12 @@ async function applyDraft<K extends DraftKind>(
     case 'card': {
       const t = p as DraftPayload<'card'>;
       const fields = { ...t.fields, ownerUserId: t.fields.isPrivate ? actor.userId : null };
+      if (fields.accountId)
+        await assertBRLAccount(
+          tx,
+          fields.accountId,
+          'A conta que paga a fatura do cartão precisa ser em reais.',
+        );
       if (t.mode === 'create') {
         const row = await tx
           .insertInto('cards')
@@ -867,6 +976,20 @@ async function applyDraft<K extends DraftKind>(
 const UNDOABLE = new Set(['transactions', 'recurrences', 'accounts', 'cards', 'goals', 'budgets', 'trades']);
 
 /** Desfaz uma entrada de auditoria (create → apaga; update → restaura; delete → recria). */
+async function accountCurrency(tx: Tx, accountId: string): Promise<Currency> {
+  const row = await tx
+    .selectFrom('accounts')
+    .select('currency')
+    .where('id', '=', accountId)
+    .executeTakeFirst();
+  if (!row) throw notFound('Conta');
+  return row.currency as Currency;
+}
+
+async function assertBRLAccount(tx: Tx, accountId: string, message: string) {
+  if ((await accountCurrency(tx, accountId)) !== 'BRL') throw new AppError(422, message);
+}
+
 async function undoAudit(tx: Tx, actor: Actor, auditId: number, draftId: string | null): Promise<string[]> {
   const entry = await tx
     .selectFrom('auditLog')

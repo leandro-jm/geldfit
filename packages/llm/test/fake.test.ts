@@ -62,4 +62,21 @@ describe('FakeProvider: roteamento de frases do PRD', () => {
       input: { closing_day: 5, due_day: 12, limit: '10 mil' },
     });
   });
+  it('boleto, folga e "posso comprar?"', () => {
+    expect(fakeRoute('34191.75702 00123.456782 90123.456783 6 16050000023050 no BB')).toMatchObject({
+      name: 'draft_bill',
+      input: { account: 'bb' },
+    });
+    expect(fakeRoute('quanto posso gastar?')).toEqual({ name: 'get_safe_to_spend', input: {} });
+    expect(fakeRoute('quanto tempo aguento se eu for demitido?')).toEqual({
+      name: 'get_emergency_reserve',
+      input: {},
+    });
+    expect(fakeRoute('posso comprar uma TV de 4.000 em 10x com 8% de desconto à vista?')).toEqual({
+      name: 'evaluate_purchase',
+      input: { description: 'Tv', price: '4.000', installments: 10, cash_discount_pct: 8 },
+    });
+    // "paguei" continua sendo lançamento comum
+    expect(fakeRoute('paguei 230 de luz no BB')?.name).toBe('draft_transactions');
+  });
 });

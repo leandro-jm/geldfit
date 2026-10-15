@@ -62,6 +62,8 @@ export async function fetchBenchmarks(ctx: WorkerContext, today: string) {
     );
     for (const v of r.value)
       await upsertBenchmark(ctx, 'PTAX_USD', v.dataHoraCotacao.slice(0, 10), v.cotacaoVenda, 'bcb_ptax');
+    // Lançamentos de contas em dólar feitos antes da PTAX do dia usaram a cotação anterior
+    if (r.value.length) await sql`select refresh_usd_amounts(${from}::date)`.execute(ctx.sys);
   } catch (err) {
     ctx.app.log.warn({ err }, 'falha ao buscar PTAX');
   }

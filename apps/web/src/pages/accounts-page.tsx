@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowLeftRight,
   ChevronDown,
   CreditCard,
   Lock,
@@ -11,7 +12,15 @@ import {
   Wallet,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatBRL, formatDateBR, monthLabel, parseAmount, type AccountDTO, type CardDTO } from '@sf/shared';
+import {
+  formatBRL,
+  formatDateBR,
+  monthLabel,
+  parseAmount,
+  type AccountDTO,
+  type CardDTO,
+  type Currency,
+} from '@sf/shared';
 import { useAccounts, useAction, useCardStatements, useCards } from '@/lib/queries';
 import { useWorkspace } from '@/lib/workspace';
 import { cn, relativeDays, todayLocalISO } from '@/lib/utils';
@@ -24,6 +33,7 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Money } from '@/components/common/money';
+import { TransferDialog } from '@/components/common/transfer-dialog';
 import { EmptyState, ErrorState, PageHeader } from '@/components/common/states';
 import { CardUsage } from './dashboard/panels';
 
@@ -33,6 +43,7 @@ const TYPE_LABEL: Record<AccountDTO['type'], string> = {
   investment: 'Investimento',
   cash: 'Dinheiro',
 };
+const CURRENCY_LABEL: Record<Currency, string> = { BRL: 'Real (R$)', USD: 'Dólar (US$)' };
 const centsToInput = (c: number) => (c / 100).toFixed(2).replace('.', ',');
 
 function AccountForm({
@@ -49,6 +60,7 @@ function AccountForm({
     institution: '',
     name: '',
     type: 'checking' as AccountDTO['type'],
+    currency: 'BRL' as Currency,
     opening: '0,00',
     openingDate: todayLocalISO(),
     isPrivate: false,
@@ -61,6 +73,7 @@ function AccountForm({
             institution: account.institution,
             name: account.name,
             type: account.type,
+            currency: account.currency,
             opening: centsToInput(account.openingBalanceCents),
             openingDate: account.openingDate,
             isPrivate: account.isPrivate,
@@ -69,6 +82,7 @@ function AccountForm({
             institution: '',
             name: '',
             type: 'checking',
+            currency: 'BRL',
             opening: '0,00',
             openingDate: todayLocalISO(),
             isPrivate: false,
@@ -77,6 +91,7 @@ function AccountForm({
   }, [open, account]);
   const cents = parseAmount(f.opening);
   const valid = f.institution.trim() && f.name.trim() && cents !== null;
+  const currencyLocked = Boolean(account?.lastActivityDate);
   const submit = async () => {
     if (!valid) return;
     try {
@@ -89,6 +104,7 @@ function AccountForm({
             institution: f.institution.trim(),
             name: f.name.trim(),
             type: f.type,
+            currency: f.currency,
             openingBalanceCents: cents,
             openingDate: f.openingDate,
             isPrivate: f.isPrivate,
@@ -148,7 +164,33 @@ function AccountForm({
             ))}
           </Select>
         </Field>
-        <Field label="Saldo inicial (R$)" htmlFor="acc-open" error={cents === null ? 'Valor inválido' : null}>
+        <Field
+          label="Moeda"
+          htmlFor="acc-currency"
+          hint={
+            currencyLocked
+              ? 'A conta já tem lançamentos; a moeda não pode mudar.'
+              : 'Dólar para contas como Nomad, Wise, Avenue.'
+          }
+        >
+          <Select
+            id="acc-currency"
+            value={f.currency}
+            disabled={currencyLocked}
+            onChange={(e) => setF({ ...f, currency: e.target.value as Currency })}
+          >
+            {Object.entries(CURRENCY_LABEL).map(([v, l]) => (
+              <option key={v} value={v}>
+                {l}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          label={`Saldo inicial (${f.currency === 'USD' ? 'US$' : 'R$'})`}
+          htmlFor="acc-open"
+          error={cents === null ? 'Valor inválido' : null}
+        >
           <Input
             id="acc-open"
             inputMode="decimal"
@@ -211,7 +253,7 @@ function CardForm({ card, open, onClose }: { card: CardDTO | null; open: boolean
           }
         : {
             name: '',
-            accountId: accounts.data?.[0]?.id ?? '',
+            accountId: accounts.data?.find((a) => a.currency === 'BRL')?.id ?? '',
             last4: '',
             holderTag: '',
             limit: '',
@@ -291,11 +333,14 @@ function CardForm({ card, open, onClose }: { card: CardDTO | null; open: boolean
             onChange={(e) => setF({ ...f, accountId: e.target.value })}
           >
             <option value="">Nenhuma</option>
-            {(accounts.data ?? []).map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
+            {/* A fatura é em reais: só conta em reais pode pagá-la */}
+            {(accounts.data ?? [])
+              .filter((a) => a.currency === 'BRL')
+              .map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
           </Select>
         </Field>
         <Field label="Limite (R$)" htmlFor="card-limit">
@@ -421,6 +466,25 @@ function Statements({ cardId }: { cardId: string }) {
   );
 }
 
+/** Equivalente em reais de um valor em dólar, com a PTAX usada. */
+export function FxNote({
+  cents,
+  fx,
+  className,
+}: {
+  cents: number;
+  fx: NonNullable<AccountDTO['fx']>;
+  className?: string;
+}) {
+  return (
+    <p className={cn('text-[12.5px] text-muted-foreground', className)}>
+      ≈ <Money cents={cents} /> · PTAX{' '}
+      {fx.rate.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} em{' '}
+      {formatDateBR(fx.date).slice(0, 5)}
+    </p>
+  );
+}
+
 export function AccountsPage() {
   const accounts = useAccounts();
   const cards = useCards();
@@ -435,8 +499,13 @@ export function AccountsPage() {
     card: null,
   });
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [transfer, setTransfer] = useState<{ open: boolean; fromId: string | null }>({
+    open: false,
+    fromId: null,
+  });
+  const canTransfer = canWrite && (accounts.data?.length ?? 0) >= 2;
   const [del, setDel] = useState<{ entity: 'accounts' | 'cards'; id: string; name: string } | null>(null);
-  const total = (accounts.data ?? []).reduce((s, a) => s + a.balanceCents, 0);
+  const total = (accounts.data ?? []).reduce((s, a) => s + a.balanceBrlCents, 0);
 
   const doDelete = async () => {
     if (!del) return;
@@ -459,9 +528,16 @@ export function AccountsPage() {
             Contas <Money cents={total} className="text-[13px] font-normal text-muted-foreground" />
           </h2>
           {canWrite ? (
-            <Button size="sm" variant="outline" onClick={() => setAccForm({ open: true, account: null })}>
-              <Plus aria-hidden /> Nova conta
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {canTransfer ? (
+                <Button size="sm" variant="outline" onClick={() => setTransfer({ open: true, fromId: null })}>
+                  <ArrowLeftRight aria-hidden /> Transferir
+                </Button>
+              ) : null}
+              <Button size="sm" variant="outline" onClick={() => setAccForm({ open: true, account: null })}>
+                <Plus aria-hidden /> Nova conta
+              </Button>
+            </div>
           ) : null}
         </div>
         {accounts.error ? (
@@ -498,6 +574,7 @@ export function AccountsPage() {
                       </h3>
                       <p className="truncate text-[12.5px] text-muted-foreground">
                         {a.institution} · {TYPE_LABEL[a.type]}
+                        {a.currency === 'USD' ? ' · em dólar' : ''}
                       </p>
                     </div>
                     {canWrite ? (
@@ -508,6 +585,11 @@ export function AccountsPage() {
                           </Button>
                         </MenuTrigger>
                         <MenuContent>
+                          {canTransfer ? (
+                            <MenuItem onSelect={() => setTransfer({ open: true, fromId: a.id })}>
+                              <ArrowLeftRight aria-hidden /> Transferir daqui
+                            </MenuItem>
+                          ) : null}
                           <MenuItem onSelect={() => setAccForm({ open: true, account: a })}>
                             <Pencil aria-hidden /> Editar
                           </MenuItem>
@@ -523,9 +605,11 @@ export function AccountsPage() {
                   </div>
                   <Money
                     cents={a.balanceCents}
+                    currency={a.currency}
                     tone={a.balanceCents < 0 ? 'negative' : undefined}
                     className="mt-4 block text-2xl font-semibold tracking-tight"
                   />
+                  {a.fx ? <FxNote cents={a.balanceBrlCents} fx={a.fx} className="mt-0.5" /> : null}
                   <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground">
                     {a.lastActivityDate
                       ? `Último lançamento ${relativeDays(a.lastActivityDate)}`
@@ -630,6 +714,11 @@ export function AccountsPage() {
         open={cardForm.open}
         card={cardForm.card}
         onClose={() => setCardForm({ open: false, card: null })}
+      />
+      <TransferDialog
+        open={transfer.open}
+        defaultFromAccountId={transfer.fromId}
+        onClose={() => setTransfer({ open: false, fromId: null })}
       />
       <ConfirmDialog
         open={Boolean(del)}

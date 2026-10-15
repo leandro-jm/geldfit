@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { z } from 'zod';
-import { withUserContext, type Tx } from '@sf/db';
+import { sql, withUserContext, type Tx } from '@sf/db';
 import type { Usage } from '@sf/llm';
 import type { Actor, AppContext } from '../context.js';
 import { AppError, notFound } from '../lib/errors.js';
@@ -51,6 +51,7 @@ export async function saveAttachment(
       .where('sha256', '=', sha256)
       .executeTakeFirst();
     if (existing) return { ...existing, duplicate: true };
+    await assertMonthlyAttachmentQuota(tx, actor.workspaceId);
     const id = randomUUID();
     const storageKey = `${actor.workspaceId}/${id}`;
     await app.storage.put(storageKey, file.data);
@@ -70,6 +71,27 @@ export async function saveAttachment(
       .executeTakeFirstOrThrow();
     return { ...row, duplicate: false };
   });
+}
+
+/** Limite mensal de anexos novos (mês corrente no fuso do workspace). Reenvios idênticos não contam. */
+async function assertMonthlyAttachmentQuota(tx: Tx, ws: string) {
+  const r = await sql<{ plan: string; used: number }>`
+    select w.plan, (
+      select count(*)::int from attachments a
+      where a.workspace_id = w.id
+        and a.created_at >= (date_trunc('month', ws_today(w.id))::timestamp at time zone coalesce(s.timezone, 'America/Sao_Paulo'))
+    ) as used
+    from workspaces w left join workspace_settings s on s.workspace_id = w.id
+    where w.id = ${ws}::uuid`.execute(tx);
+  const row = r.rows[0];
+  if (!row) return;
+  const limit = PLAN_MONTHLY_ATTACHMENTS[row.plan] ?? PLAN_MONTHLY_ATTACHMENTS.free!;
+  if (row.used >= limit)
+    throw new AppError(
+      429,
+      `Você atingiu o limite de ${limit} anexos por mês do seu plano. O limite renova no dia 1º.`,
+      'plan_limit',
+    );
 }
 
 const CsvMappingSchema = z.object({
@@ -221,6 +243,7 @@ function emptyDoc(docType: ExtractedDoc['doc_type']): ExtractedDoc {
     pension: null,
     trades: [],
     notes: null,
+    payment: null,
   };
 }
 

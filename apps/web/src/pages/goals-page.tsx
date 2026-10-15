@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Goal, MoreVertical, Pencil, PiggyBank, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, Check, Goal, MoreVertical, Pencil, PiggyBank, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatBRL, formatDateBR, monthLabel, parseAmount, startOfMonth } from '@sf/shared';
+import {
+  formatBRL,
+  formatDateBR,
+  goalPlan,
+  monthLabel,
+  parseAmount,
+  startOfMonth,
+  type GoalPlan,
+} from '@sf/shared';
 import { useAction, useBudgets, useCategories, useCategorySpend, useGoals } from '@/lib/queries';
 import { useWorkspace } from '@/lib/workspace';
 import { todayLocalISO } from '@/lib/utils';
@@ -64,6 +72,19 @@ function GoalForm({ goal, open, onClose }: { goal: GoalRow | null; open: boolean
   const saved = parseAmount(f.saved || '0') ?? 0;
   const monthly = parseAmount(f.monthly || '0') ?? 0;
   const valid = f.name.trim() && target && target > 0;
+  const formPlan =
+    target && f.targetDate
+      ? goalPlan(
+          {
+            targetCents: target,
+            savedCents: saved,
+            monthlyContributionCents: monthly,
+            startMonth: startOfMonth(f.startMonth || todayLocalISO()),
+            targetDate: f.targetDate,
+          },
+          todayLocalISO(),
+        )
+      : null;
   const submit = async () => {
     if (!valid) return;
     try {
@@ -144,7 +165,27 @@ function GoalForm({ goal, open, onClose }: { goal: GoalRow | null; open: boolean
             onChange={(e) => setF({ ...f, saved: e.target.value })}
           />
         </Field>
-        <Field label="Aporte mensal (R$)" htmlFor="g-monthly">
+        <Field
+          label="Aporte mensal (R$)"
+          htmlFor="g-monthly"
+          hint={
+            formPlan?.recommendedMonthlyCents ? (
+              formPlan.status === 'on_track' ? (
+                <span className="text-positive">Chega no prazo.</span>
+              ) : (
+                <button
+                  type="button"
+                  className="text-left font-medium text-primary hover:underline"
+                  onClick={() => setF({ ...f, monthly: toInput(formPlan.recommendedMonthlyCents!) })}
+                >
+                  Para o prazo: {formatBRL(formPlan.recommendedMonthlyCents)}/mês (usar)
+                </button>
+              )
+            ) : formPlan?.status === 'overdue' ? (
+              <span className="text-negative">A data alvo já passou.</span>
+            ) : undefined
+          }
+        >
           <Input
             id="g-monthly"
             inputMode="decimal"
@@ -274,6 +315,79 @@ function BudgetForm({
   );
 }
 
+/** Aporte recomendado para cumprir o prazo, ou confirmação de que o ritmo atual chega lá. */
+function GoalAdvice({
+  goal,
+  plan,
+  canWrite,
+  onApply,
+  busy,
+}: {
+  goal: GoalRow;
+  plan: GoalPlan;
+  canWrite: boolean;
+  onApply: (cents: number) => void;
+  busy: boolean;
+}) {
+  if (plan.status === 'behind') {
+    const n = plan.contributionsLeft!;
+    return (
+      <div className="mt-3 rounded-xl bg-warning-soft px-3 py-2.5 text-[12.5px]" data-testid="goal-advice">
+        <p className="flex items-start gap-1.5">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
+          <span>
+            Para chegar até {formatDateBR(goal.targetDate!)}, aporte{' '}
+            <Money cents={plan.recommendedMonthlyCents!} className="font-semibold" />
+            /mês ({n} {n === 1 ? 'aporte' : 'aportes'}
+            {goal.monthlyContributionCents > 0 ? (
+              <>
+                , <Money cents={plan.recommendedMonthlyCents! - goal.monthlyContributionCents} /> a mais
+              </>
+            ) : null}
+            ).
+          </span>
+        </p>
+        {canWrite ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-2 bg-card"
+            disabled={busy}
+            onClick={() => onApply(plan.recommendedMonthlyCents!)}
+          >
+            Usar{' '}
+            <span>
+              <Money cents={plan.recommendedMonthlyCents!} />
+              /mês
+            </span>
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+  if (plan.status === 'on_track' && plan.finishMonth)
+    return (
+      <p className="mt-2 flex items-center gap-1 text-[12px] text-positive" data-testid="goal-advice">
+        <Check className="size-3.5" aria-hidden /> Em dia: conclui em {monthLabel(plan.finishMonth, true)},
+        dentro do prazo.
+      </p>
+    );
+  if (plan.status === 'overdue')
+    return (
+      <p className="mt-2 flex items-center gap-1 text-[12px] text-negative" data-testid="goal-advice">
+        <AlertTriangle className="size-3.5" aria-hidden /> O prazo passou e faltam{' '}
+        <Money cents={plan.remainingCents} />. Ajuste a data alvo.
+      </p>
+    );
+  if (plan.status === 'no_date' && goal.monthlyContributionCents === 0)
+    return (
+      <p className="mt-2 text-[12px] text-muted-foreground" data-testid="goal-advice">
+        Defina uma data alvo para ver o aporte mensal recomendado.
+      </p>
+    );
+  return null;
+}
+
 export function GoalsPage() {
   const goals = useGoals();
   const budgets = useBudgets();
@@ -286,6 +400,33 @@ export function GoalsPage() {
     budget: null,
   });
   const [del, setDel] = useState<{ entity: 'goals' | 'budgets'; id: string; name: string } | null>(null);
+
+  /** Passa a usar o aporte recomendado (mesmo fluxo de draft: auditoria, desfazer e impacto na projeção). */
+  const applyContribution = async (g: GoalRow, monthlyContributionCents: number) => {
+    try {
+      const r = await action.mutateAsync({
+        kind: 'goal',
+        payload: {
+          mode: 'update',
+          id: g.id,
+          fields: {
+            name: g.name,
+            kind: g.kind,
+            targetCents: g.targetCents,
+            savedCents: g.savedCents,
+            monthlyContributionCents,
+            startMonth: g.startMonth,
+            targetDate: g.targetDate,
+          },
+        },
+      });
+      toast.success(`Aporte de ${formatBRL(monthlyContributionCents)}/mês salvo.`, {
+        description: r.impact ?? undefined,
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Não foi possível atualizar o aporte.');
+    }
+  };
 
   return (
     <div>
@@ -321,6 +462,7 @@ export function GoalsPage() {
               const remaining = Math.max(0, g.targetCents - g.savedCents);
               const months =
                 g.monthlyContributionCents > 0 ? Math.ceil(remaining / g.monthlyContributionCents) : null;
+              const plan = goalPlan(g, todayLocalISO());
               return (
                 <li key={g.id}>
                   <Card className="h-full p-4">
@@ -377,7 +519,17 @@ export function GoalsPage() {
                       {months !== null && remaining > 0
                         ? ` · ~${months} ${months === 1 ? 'mês' : 'meses'} para concluir`
                         : ''}
+                      {plan.finishMonth && remaining > 0 ? ` (${monthLabel(plan.finishMonth, true)})` : ''}
                     </p>
+                    {g.status === 'active' ? (
+                      <GoalAdvice
+                        goal={g}
+                        plan={plan}
+                        canWrite={canWrite}
+                        onApply={(cents) => void applyContribution(g, cents)}
+                        busy={action.isPending}
+                      />
+                    ) : null}
                   </Card>
                 </li>
               );

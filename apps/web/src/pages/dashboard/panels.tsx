@@ -12,7 +12,10 @@ import {
   ChevronDown,
   CreditCard,
   Info,
+  LifeBuoy,
   Minus,
+  ShoppingBag,
+  Wallet,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -20,6 +23,7 @@ import {
   formatBRL,
   formatDateBR,
   monthLabel,
+  type AccountShortfall,
   type CardDTO,
   type DashboardSummary,
   type InsightDTO,
@@ -30,18 +34,20 @@ import {
   useAccounts,
   useCards,
   useCategorySpend,
+  useEmergencyReserve,
   useFlows,
   useInsights,
   useInvalidateWorkspace,
   usePension,
   usePortfolio,
   useProjection,
+  useSafeToSpend,
   useSummary,
   useUpcoming,
 } from '@/lib/queries';
 import { useFilters } from '@/lib/filters';
 import { useWorkspace } from '@/lib/workspace';
-import { cn, pct, relativeDays, signedPct } from '@/lib/utils';
+import { cn, pct, relativeDays, signedPct, todayLocalISO } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Meter } from '@/components/ui/progress';
@@ -52,6 +58,8 @@ import { Panel, UpdatedAt } from '@/components/common/panel';
 import { EmptyState } from '@/components/common/states';
 import { AskButton } from '@/components/common/ask';
 import { useMarkPaid } from '@/components/common/mark-paid';
+import { TransferDialog } from '@/components/common/transfer-dialog';
+import { useChat } from '@/components/chat/chat-context';
 import {
   AllocationDonut,
   CLASS_LABEL,
@@ -215,6 +223,272 @@ export function KpiRow() {
         ) : null}
       </div>
     </section>
+  );
+}
+
+// --------------------------------------------------------------------------------------------
+// Folga para gastar ("quanto posso gastar?") e contas que vão ficar negativas
+// --------------------------------------------------------------------------------------------
+
+const SAFE_STATUS = {
+  ok: { tone: 'positive', label: 'com folga' },
+  tight: { tone: 'warning', label: 'apertado' },
+  over: { tone: 'negative', label: 'sem folga' },
+} as const;
+
+export function SafeToSpendPanel({ className }: { className?: string }) {
+  const q = useSafeToSpend();
+  const chat = useChat();
+  const { canWrite } = useWorkspace();
+  const [cover, setCover] = useState<AccountShortfall | null>(null);
+  const s = q.data;
+  const status = s ? SAFE_STATUS[s.status] : null;
+  return (
+    <Panel
+      id="safe-to-spend"
+      title="Quanto posso gastar"
+      description="Folga sobre o seu piso nos próximos 24 meses"
+      ask={{ question: 'Quanto posso gastar sem apertar os próximos meses?' }}
+      className={className}
+      loading={q.isPending}
+      error={q.error}
+      onRetry={() => void q.refetch()}
+      skeletonHeight={72}
+      actions={
+        status ? (
+          <Badge tone={status.tone} data-testid="safe-status">
+            {status.label}
+          </Badge>
+        ) : null
+      }
+    >
+      {s ? (
+        <div className="grid gap-4 @min-[620px]:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto] @min-[620px]:items-center">
+          <div className="min-w-0" data-testid="safe-extra">
+            <p className="text-[13px] text-muted-foreground">
+              {s.status === 'over' ? 'Falta para voltar ao piso' : 'Folga para gastos extras'}
+            </p>
+            <p className="mt-0.5 text-[26px] font-semibold leading-9 tracking-tight">
+              <Money
+                cents={s.status === 'over' ? s.deficitCents : s.extraCents}
+                tone={s.status === 'over' ? 'negative' : undefined}
+              />
+            </p>
+            <p className="text-[12.5px] text-muted-foreground">
+              {s.status === 'over' && s.firstBelowFloor
+                ? `A projeção fura o piso de ${formatBRL(s.floorCents)} em ${monthLabel(s.firstBelowFloor, true)}.`
+                : `Sem nenhum mês abaixo do piso de ${formatBRL(s.floorCents)}${
+                    s.limitingMonth ? ` · mais apertado: ${monthLabel(s.limitingMonth, true)}` : ''
+                  }`}
+              {s.status !== 'over' && s.conservativeExtraCents < s.extraCents ? (
+                <>
+                  {' '}
+                  · pessimista: <Money cents={s.conservativeExtraCents} />
+                </>
+              ) : null}
+            </p>
+          </div>
+          <div className="min-w-0 rounded-xl bg-subtle/70 px-3.5 py-2.5" data-testid="safe-daily">
+            <p className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+              <Wallet className="size-3.5" aria-hidden /> Dia a dia até o fim do mês
+            </p>
+            {s.monthVariableLeftCents > 0 ? (
+              <p className="mt-0.5 text-[15px] font-semibold">
+                ≈ <Money cents={s.dailyCents} />{' '}
+                <span className="font-normal text-muted-foreground">por dia</span>
+                <span className="block text-[12px] font-normal text-muted-foreground">
+                  <Money cents={s.monthVariableLeftCents} /> no seu ritmo normal · {s.daysLeft}{' '}
+                  {s.daysLeft === 1 ? 'dia' : 'dias'}
+                </span>
+              </p>
+            ) : (
+              <p className="mt-0.5 text-[13.5px]">O previsto para o dia a dia deste mês já foi usado.</p>
+            )}
+          </div>
+          <Button
+            variant="outline"
+            className="justify-self-start"
+            onClick={() =>
+              chat.openChat({
+                text: 'posso comprar ',
+                context: { panel: 'Quanto posso gastar', detail: `folga ${formatBRL(s.extraCents)}` },
+              })
+            }
+          >
+            <ShoppingBag aria-hidden /> Posso comprar…?
+          </Button>
+          {s.shortfalls.length ? (
+            <ul className="space-y-2 @min-[620px]:col-span-3" aria-label="Contas que vão ficar negativas">
+              {s.shortfalls.map((f) => (
+                <li
+                  key={f.accountId}
+                  role="alert"
+                  data-testid="shortfall"
+                  className="flex flex-col gap-2 rounded-xl border border-negative/25 bg-negative-soft px-3.5 py-2.5 text-[13.5px] sm:flex-row sm:items-center"
+                >
+                  <p className="flex min-w-0 flex-1 items-start gap-2">
+                    <AlertTriangle className="mt-0.5 size-4 shrink-0 text-negative" aria-hidden />
+                    <span>
+                      <span className="font-semibold">{f.accountName}</span> fica em{' '}
+                      <Money cents={f.balanceCents} className="font-semibold" tone="negative" /> em{' '}
+                      {formatDateBR(f.date)}
+                      {f.cause ? (
+                        <span className="text-muted-foreground">
+                          {' '}
+                          ({f.cause.description} <Money cents={f.cause.amountCents} />)
+                        </span>
+                      ) : null}
+                    </span>
+                  </p>
+                  {f.suggestion && canWrite ? (
+                    <Button size="sm" variant="outline" className="shrink-0" onClick={() => setCover(f)}>
+                      Transferir <Money cents={f.suggestion.amountCents} /> da {f.suggestion.fromAccountName}
+                    </Button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+      <TransferDialog
+        open={Boolean(cover)}
+        onClose={() => setCover(null)}
+        defaultFromAccountId={cover?.suggestion?.fromAccountId}
+        defaultToAccountId={cover?.accountId}
+        defaultAmountCents={cover?.suggestion?.amountCents}
+        defaultDate={cover?.suggestion?.date}
+        defaultDescription={cover ? `Cobrir saldo da ${cover.accountName}` : null}
+      />
+    </Panel>
+  );
+}
+
+// --------------------------------------------------------------------------------------------
+// Reserva de emergência (cenário de desligamento)
+// --------------------------------------------------------------------------------------------
+
+const RESERVE_STATUS = {
+  ok: { tone: 'positive', label: 'na meta', meter: 'positive' },
+  low: { tone: 'warning', label: 'abaixo da meta', meter: 'warning' },
+  critical: { tone: 'negative', label: 'baixa', meter: 'negative' },
+} as const;
+
+const fmtMonths = (n: number) =>
+  `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} ${n === 1 ? 'mês' : 'meses'}`;
+
+export function EmergencyReservePanel({ className }: { className?: string }) {
+  const q = useEmergencyReserve();
+  const r = q.data;
+  const status = r ? RESERVE_STATUS[r.status] : null;
+  const empty = r && r.reserveCents === 0 && r.monthlyCostCents === 0;
+  return (
+    <Panel
+      id="emergency-reserve"
+      title="Reserva de emergência"
+      description="Se a renda do trabalho parar hoje"
+      ask={{ question: 'Quanto tempo minha reserva aguenta se eu for demitido?' }}
+      className={className}
+      loading={q.isPending}
+      error={q.error}
+      onRetry={() => void q.refetch()}
+      skeletonHeight={120}
+      actions={
+        status && !empty ? (
+          <Badge tone={status.tone} data-testid="reserve-status">
+            {status.label}
+          </Badge>
+        ) : null
+      }
+    >
+      {empty ? (
+        <EmptyState
+          compact
+          title="Cadastre suas contas para calcular"
+          icon={<LifeBuoy className="size-5" />}
+          prompt="abri uma conta no BB com 5.000"
+        />
+      ) : r ? (
+        <div className="space-y-3">
+          <div data-testid="reserve-months">
+            <p className="text-[26px] font-semibold leading-9 tracking-tight">
+              {r.months === null ? '24+ meses' : fmtMonths(r.months)}
+            </p>
+            <p className="text-[12.5px] text-muted-foreground">
+              {r.months === null
+                ? 'pagando as contas sem salário, até o fim da projeção'
+                : `pagando as contas sem salário · acaba em ${monthLabel(r.runsOutMonth!, true)}`}
+            </p>
+          </div>
+          <div>
+            <Meter
+              value={r.months ?? r.targetMonths * 1.5}
+              max={Math.max(r.targetMonths * 1.5, 1)}
+              marker={r.targetMonths}
+              tone={status!.meter}
+              label={`Meses cobertos pela reserva; meta de ${fmtMonths(r.targetMonths)}`}
+            />
+            <p className="mt-1.5 text-right text-[11.5px] text-muted-foreground">
+              meta: {fmtMonths(r.targetMonths)}
+            </p>
+          </div>
+          <dl className="space-y-1.5 text-[13px]">
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Reserva disponível</dt>
+              <dd className="font-medium">
+                <Money cents={r.reserveCents} />
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3 pl-3 text-[12.5px]">
+              <dt className="text-muted-foreground">em contas</dt>
+              <dd>
+                <Money cents={r.breakdown.accountsCents} />
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3 pl-3 text-[12.5px]">
+              <dt className="text-muted-foreground">investimentos com resgate imediato</dt>
+              <dd>
+                <Money cents={r.breakdown.investmentsCents} />
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Custo médio por mês</dt>
+              <dd>
+                <Money cents={r.monthlyCostCents} direction="out" />
+              </dd>
+            </div>
+            {r.otherIncomeCents > 0 ? (
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">Outras receitas que continuam</dt>
+                <dd>
+                  <Money cents={r.otherIncomeCents} direction="in" tone="positive" />
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+          <p className="text-[12px] text-muted-foreground" data-testid="reserve-salaries">
+            {r.salaries.length ? (
+              <>
+                Param no cenário:{' '}
+                {r.salaries.map((s, i) => (
+                  <span key={`${s.description}-${i}`}>
+                    {i ? ', ' : ''}
+                    {s.description} (<Money cents={s.amountCents} />)
+                  </span>
+                ))}
+                .
+              </>
+            ) : (
+              'Nenhum salário recorrente cadastrado: considerei só as receitas já previstas.'
+            )}{' '}
+            Não inclui FGTS, multa de 40%, rescisão nem seguro-desemprego.{' '}
+            <Link to="/configuracoes" className="font-medium text-primary hover:underline">
+              Ajustar meta
+            </Link>
+          </p>
+        </div>
+      ) : null}
+    </Panel>
   );
 }
 
@@ -887,7 +1161,7 @@ export function UpcomingPanel({ className }: { className?: string }) {
   const q = useUpcoming(15);
   const { canWrite } = useWorkspace();
   const { markPaid, dialog, pending } = useMarkPaid();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalISO();
   return (
     <Panel
       id="upcoming"
@@ -1125,11 +1399,19 @@ export function AccountsPanel({ className }: { className?: string }) {
                   ) : null}
                 </p>
               </div>
-              <Money
-                cents={a.balanceCents}
-                tone={a.balanceCents < 0 ? 'negative' : undefined}
-                className="text-[13.5px] font-semibold"
-              />
+              <div className="text-right">
+                <Money
+                  cents={a.balanceCents}
+                  currency={a.currency}
+                  tone={a.balanceCents < 0 ? 'negative' : undefined}
+                  className="block text-[13.5px] font-semibold"
+                />
+                {a.fx ? (
+                  <span className="text-[11.5px] text-muted-foreground">
+                    ≈ <Money cents={a.balanceBrlCents} />
+                  </span>
+                ) : null}
+              </div>
             </li>
           ))}
         </ul>

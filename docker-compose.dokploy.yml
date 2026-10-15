@@ -1,0 +1,120 @@
+# Deploy no Dokploy (serviço do tipo "Docker Compose" apontando para este arquivo).
+#
+# - O Dokploy grava as variáveis da aba "Environment" num .env ao lado deste arquivo; elas são
+#   lidas tanto pela interpolação ${...} quanto pelo env_file dos serviços.
+# - Nenhuma porta é publicada: o domínio é configurado na aba "Domains" apontando para o
+#   serviço "web", porta 80 (o nginx do web serve a SPA e faz proxy de /api).
+# - WhatsApp é opcional: defina COMPOSE_PROFILES=whatsapp no Environment para subir Evolution + Redis.
+# - Dados persistentes ficam em volumes nomeados (pgdata, files, evolution_instances).
+
+services:
+  postgres:
+    build: { context: ., dockerfile: db/docker/postgres.Dockerfile }
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}
+      POSTGRES_DB: saude_financeira
+      # Usadas só na primeira inicialização do volume (db/init/01-roles.sh)
+      APP_USER_PASSWORD: ${APP_USER_PASSWORD:?defina APP_USER_PASSWORD}
+      APP_WORKER_PASSWORD: ${APP_WORKER_PASSWORD:?defina APP_WORKER_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d saude_financeira']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    build: { context: ., dockerfile: db/docker/migrate.Dockerfile }
+    restart: 'no'
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/saude_financeira?sslmode=disable
+    command: ['--wait', 'up']
+
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    restart: unless-stopped
+    env_file: .env
+    environment: &app-env
+      NODE_ENV: production
+      API_PORT: 4100
+      DATABASE_URL: postgresql://app_user:${APP_USER_PASSWORD}@postgres:5432/saude_financeira
+      PUBLIC_WEB_URL: ${APP_URL:?defina APP_URL com a URL pública, ex. https://financas.seudominio.com}
+      PUBLIC_API_URL: ${APP_URL}
+      FILES_DIR: /data/files
+      SMTP_HOST: ${SMTP_HOST:-}
+      EVOLUTION_URL: http://evolution:8080
+      EVOLUTION_WEBHOOK_URL: http://api:4100
+      # Traefik → nginx (web) → api, todos em redes privadas
+      TRUST_PROXY: uniquelocal
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    volumes:
+      - files:/data/files
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:4100/api/health >/dev/null || exit 1']
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+
+  worker:
+    build: { context: ., dockerfile: apps/worker/Dockerfile }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *app-env
+      WORKER_DATABASE_URL: postgresql://app_worker:${APP_WORKER_PASSWORD}@postgres:5432/saude_financeira
+    depends_on:
+      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    volumes:
+      - files:/data/files
+
+  web:
+    build: { context: ., dockerfile: apps/web/Dockerfile }
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_healthy }
+    expose:
+      - '80'
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    profiles: [whatsapp]
+
+  evolution:
+    image: evoapicloud/evolution-api:v2.3.7
+    restart: unless-stopped
+    profiles: [whatsapp]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    expose:
+      - '8080'
+    environment:
+      # Se expuser o painel da Evolution num domínio do Dokploy, coloque a URL pública aqui
+      SERVER_URL: ${EVOLUTION_PUBLIC_URL:-http://evolution:8080}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-}
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/evolution?schema=public
+      DATABASE_CONNECTION_CLIENT_NAME: evolution
+      CACHE_REDIS_ENABLED: 'true'
+      CACHE_REDIS_URI: redis://redis:6379/6
+      CACHE_REDIS_PREFIX_KEY: evolution
+      CACHE_LOCAL_ENABLED: 'false'
+      LOG_LEVEL: ERROR,WARN,INFO
+      DEL_INSTANCE: 'false'
+    volumes:
+      - evolution_instances:/evolution/instances
+
+volumes:
+  pgdata:
+  files:
+  evolution_instances:

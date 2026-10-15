@@ -1,8 +1,9 @@
 import { sql, withUserContext } from '@sf/db';
-import { formatBRL, formatDateBR, type DraftDTO } from '@sf/shared';
+import { formatDateBR, formatMoney, type DraftDTO } from '@sf/shared';
 import type { Actor, AppContext } from '../context.js';
 import { AppError } from '../lib/errors.js';
 import { handleMessage } from '../agent/orchestrator.js';
+import { transcribeAudio } from '../import/audio.js';
 import { saveAttachment } from '../import/service.js';
 import type { InboundMessage } from './types.js';
 
@@ -17,7 +18,7 @@ export function draftToWhatsApp(d: DraftDTO): string {
   if (p.items && p.items.length > 1) {
     for (const it of p.items.slice(0, 8))
       lines.push(
-        `• ${formatDateBR(it.date)} ${it.description} ${formatBRL(it.amountCents)}${it.duplicate ? ' (duplicata)' : ''}${it.lowConfidence ? ' (?)' : ''}`,
+        `• ${formatDateBR(it.date)} ${it.description} ${formatMoney(it.amountCents, it.currency)}${it.duplicate ? ' (duplicata)' : ''}${it.lowConfidence ? ' (?)' : ''}`,
       );
     if (p.items.length > 8) lines.push(`… e mais ${p.items.length - 8}. Revise todos na web.`);
   }
@@ -107,11 +108,29 @@ export async function handleInbound(app: AppContext, msg: InboundMessage): Promi
     channel: 'whatsapp',
   };
 
-  if (msg.kind === 'audio') {
-    await wa.sendText(msg.from, 'Ainda não entendo áudio. Pode mandar por texto?');
-    return;
-  }
   if (msg.kind === 'other') return;
+
+  // Áudio vira texto e segue o mesmo fluxo; a resposta repete o que foi entendido para conferência
+  let text = msg.text ?? '';
+  let heard: string | null = null;
+  if (msg.kind === 'audio') {
+    if (!app.transcriber) {
+      await wa.sendText(msg.from, 'Ainda não entendo áudio. Pode mandar por texto?');
+      return;
+    }
+    try {
+      const file = await wa.downloadMedia(msg);
+      heard = await transcribeAudio(app, actor, { data: file.data, mime: file.mime });
+      text = heard;
+    } catch (err) {
+      await wa.sendText(
+        msg.from,
+        err instanceof AppError ? err.message : 'Não consegui ouvir o áudio. Pode mandar por texto?',
+      );
+      if (!(err instanceof AppError)) app.log.error({ err }, 'falha no áudio do WhatsApp');
+      return;
+    }
+  }
 
   const attachmentIds: string[] = [];
   if (msg.kind === 'image' || msg.kind === 'document') {
@@ -129,14 +148,14 @@ export async function handleInbound(app: AppContext, msg: InboundMessage): Promi
   }
 
   try {
-    const res = await handleMessage(app, actor, { text: msg.text ?? '', attachmentIds });
-    const parts = [res.text];
+    const res = await handleMessage(app, actor, { text, attachmentIds });
+    const parts = [heard ? `🎤 _"${heard}"_` : '', res.text];
     const pending = res.drafts.filter((d) => d.status === 'pending');
     for (const d of pending) parts.push(draftToWhatsApp(d));
     if (pending.length) {
       await wa.sendOptions(msg.from, parts.filter(Boolean).join('\n\n'), ['Confirmar', 'Editar', 'Cancelar']);
     } else if (res.text) {
-      await wa.sendText(msg.from, res.text);
+      await wa.sendText(msg.from, parts.filter(Boolean).join('\n\n'));
     }
   } catch (err) {
     await wa.sendText(

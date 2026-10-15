@@ -2,6 +2,7 @@ export * from './types.js';
 export { AnthropicProvider } from './anthropic.js';
 export { FakeProvider, route as fakeRoute } from './fake.js';
 export { costMicroUsd } from './pricing.js';
+export * from './transcribe.js';
 
 import { AnthropicProvider } from './anthropic.js';
 import { FakeProvider } from './fake.js';

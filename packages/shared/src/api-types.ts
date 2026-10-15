@@ -1,11 +1,15 @@
 /** Contratos de dados entre API e web. Valores em centavos (number), datas ISO (YYYY-MM-DD). */
 
+import type { Currency } from './money.js';
+
 export type Role = 'owner' | 'member' | 'viewer';
 
 export interface Me {
   user: { id: string; name: string; email: string; image: string | null };
   workspaces: Array<{ id: string; name: string; role: Role; plan: string }>;
   consented: boolean;
+  /** Recursos que dependem de configuração do servidor. */
+  features?: { audio: boolean };
 }
 
 export interface AccountDTO {
@@ -13,11 +17,14 @@ export interface AccountDTO {
   institution: string;
   type: 'checking' | 'savings' | 'investment' | 'cash';
   name: string;
+  currency: Currency; // saldo inicial e lançamentos ficam nesta moeda
   openingBalanceCents: number;
   openingDate: string;
   isPrivate: boolean;
   ownerUserId: string | null;
-  balanceCents: number;
+  balanceCents: number; // na moeda da conta
+  balanceBrlCents: number; // em reais (conta em dólar convertida pela PTAX)
+  fx: { rate: number; date: string } | null; // PTAX usada na conversão (só contas em dólar)
   lastActivityDate: string | null;
   stale: boolean; // sem lançamento há mais de 30 dias
   archivedAt: string | null;
@@ -63,7 +70,9 @@ export interface TransactionDTO {
   accountId: string | null;
   cardId: string | null;
   date: string;
-  amountCents: number;
+  amountCents: number; // na moeda da conta
+  amountBrlCents: number; // em reais (PTAX da data do lançamento, se a conta for em dólar)
+  currency: Currency; // moeda da conta (cartão é sempre BRL)
   direction: 'in' | 'out';
   kind: 'regular' | 'transfer' | 'card_payment';
   categoryId: string | null;
@@ -119,6 +128,67 @@ export interface ProjectionDTO {
   firstBelowFloor: string | null;
   minClosing: { month: string; cents: number } | null;
   computedAt: string;
+}
+
+/** Conta que fica negativa (cheque especial) nos próximos dias, com a sugestão de cobertura. */
+export interface AccountShortfall {
+  accountId: string;
+  accountName: string;
+  /** Primeiro dia em que o saldo fica negativo. */
+  date: string;
+  balanceCents: number;
+  /** Pior saldo no horizonte (a transferência sugerida cobre este valor). */
+  minCents: number;
+  cause: { description: string; amountCents: number } | null;
+  suggestion: { fromAccountId: string; fromAccountName: string; amountCents: number; date: string } | null;
+}
+
+/** "Quanto posso gastar": folga sobre o piso nos 24 meses + ritmo do dia a dia no mês. */
+export interface SafeToSpendDTO {
+  /** Gasto extra que cabe hoje sem nenhum mês fechar abaixo do piso. */
+  extraCents: number;
+  /** A mesma folga no cenário pessimista. */
+  conservativeExtraCents: number;
+  /** Quanto falta para voltar ao piso quando a projeção já fura (0 se não fura). */
+  deficitCents: number;
+  /** Mês de menor saldo, que limita a folga. */
+  limitingMonth: string | null;
+  floorCents: number;
+  firstBelowFloor: string | null;
+  /** Gasto do dia a dia ainda previsto até o fim do mês e o ritmo diário equivalente. */
+  monthVariableLeftCents: number;
+  dailyCents: number;
+  daysLeft: number;
+  status: 'ok' | 'tight' | 'over';
+  shortfalls: AccountShortfall[];
+  computedAt: string;
+}
+
+/**
+ * Reserva de emergência no cenário de desligamento: os salários param, as demais receitas
+ * continuam, aportes e metas param, e contas, faturas, parcelas e o dia a dia seguem a projeção.
+ */
+export interface EmergencyReserveDTO {
+  reserveCents: number;
+  breakdown: {
+    /** Saldo das contas correntes, poupança e dinheiro. */
+    accountsCents: number;
+    /** Contas de investimento e ativos com liquidez diária. */
+    investmentsCents: number;
+  };
+  /** Meses cobertos a partir de hoje (fração); null quando dura os 24 meses da projeção. */
+  months: number | null;
+  /** Mês em que a reserva acaba (null se dura os 24 meses). */
+  runsOutMonth: string | null;
+  /** Custo médio mensal nos próximos 12 meses e as receitas que continuam sem o salário. */
+  monthlyCostCents: number;
+  otherIncomeCents: number;
+  /** Salários considerados (param no desligamento), valor mensal. */
+  salaries: Array<{ description: string; amountCents: number }>;
+  targetMonths: number;
+  status: 'ok' | 'low' | 'critical';
+  /** Saldo da reserva no fim de cada mês do cenário. */
+  timeline: Array<{ month: string; balanceCents: number }>;
 }
 
 export interface UpcomingItem {
@@ -246,13 +316,20 @@ export interface DraftPreview {
     date: string;
     description: string;
     amountCents: number;
+    currency?: Currency; // padrão BRL
     direction: 'in' | 'out';
     category?: string | null;
     duplicate?: boolean;
     lowConfidence?: boolean;
     note?: string;
   }>;
-  totals?: { count: number; amountCents: number; duplicates: number; lowConfidence: number };
+  totals?: {
+    count: number;
+    amountCents: number;
+    currency?: Currency | null; // null: itens em moedas diferentes (sem total)
+    duplicates: number;
+    lowConfidence: number;
+  };
   warnings: string[];
   projectionImpact?: string | null;
 }

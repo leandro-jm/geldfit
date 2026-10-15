@@ -20,7 +20,9 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tip } from '@/components/ui/menu';
 import { toast } from 'sonner';
+import { useMe } from '@/lib/queries';
 import { DraftCard } from './draft-card';
+import { VoiceButton, voiceSupported } from './voice-button';
 import { toolLabel, useChat, type UiAttachment, type UiMessage } from './chat-context';
 
 const SUGGESTIONS: Array<{ label: string; text: string; attach?: boolean }> = [
@@ -159,6 +161,8 @@ export function ChatView({
   const cameraRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [dragging, setDragging] = useState(false);
+  const me = useMe();
+  const canDictate = Boolean(me.data?.features?.audio) && voiceSupported();
 
   // mantém a conversa "grudada" no fim enquanto o usuário não rolar para cima
   const stick = useRef(true);
@@ -491,6 +495,15 @@ export function ChatView({
             enterKeyHint="send"
             className="max-h-40 min-h-10 flex-1 resize-none bg-transparent px-1 py-2 text-[16px] leading-6 outline-none placeholder:text-muted-foreground sm:text-[14px]"
           />
+          {canDictate && !chat.input.trim() && !files.length ? (
+            <VoiceButton
+              disabled={chat.streaming}
+              onText={(t) => {
+                chat.setInput(t);
+                inputRef.current?.focus();
+              }}
+            />
+          ) : null}
           <Button
             type="submit"
             size="icon"

@@ -1,6 +1,7 @@
 import { addDays, addMonths, formatBRL, monthLabel, startOfMonth } from '@sf/shared';
 import { sql, type Tx } from '@sf/db';
 import { buildPortfolio, CLASS_LABEL, latestBenchmark } from './portfolio.js';
+import { emergencyReserve } from './forecast.js';
 import { computeProjection } from './projection.js';
 import { listAccounts } from './queries.js';
 
@@ -209,20 +210,20 @@ export async function computeInsights(tx: Tx, ws: string, today: string): Promis
     const accounts = await listAccounts(tx, ws, today);
     const ago = addDays(today, -30);
     for (const a of accounts.filter((x) => x.type === 'checking')) {
-      const past = await sql<{ b: number }>`select account_balance(${a.id}::uuid, ${ago}::date) as b`.execute(
-        tx,
-      );
+      const past = await sql<{
+        b: number;
+      }>`select account_balance_brl(${a.id}::uuid, ${ago}::date) as b`.execute(tx);
       const pastBal = Number(past.rows[0]?.b ?? 0);
-      if (a.balanceCents > monthlyExpense && pastBal > monthlyExpense) {
+      if (a.balanceBrlCents > monthlyExpense && pastBal > monthlyExpense) {
         out.push({
           rule: 'idle_cash',
           severity: 'info',
           title: `Dinheiro parado na ${a.name}`,
-          message: `${formatBRL(a.balanceCents)} parados na ${a.name} há mais de 30 dias, acima de 1 mês de despesas (${formatBRL(monthlyExpense)}).`,
+          message: `${formatBRL(a.balanceBrlCents)} parados na ${a.name} há mais de 30 dias, acima de 1 mês de despesas (${formatBRL(monthlyExpense)}).`,
           payload: {
             rule_text: 'Saldo em conta corrente acima de 1 mês de despesas projetadas por mais de 30 dias',
             numbers: {
-              saldo: formatBRL(a.balanceCents),
+              saldo: formatBRL(a.balanceBrlCents),
               saldo_30d_atras: formatBRL(pastBal),
               despesa_mensal: formatBRL(monthlyExpense),
             },
@@ -233,33 +234,23 @@ export async function computeInsights(tx: Tx, ws: string, today: string): Promis
     }
   }
 
-  // 7) Reserva de emergência
+  // 7) Reserva de emergência: mesmo cenário de desligamento do painel (salário para, contas seguem)
   if (monthlyExpense > 0 && settings) {
-    const liquidAssets = await tx
-      .selectFrom('assets')
-      .select('id')
-      .where('id', 'in', [...pf.positions.map((p) => p.assetId), '00000000-0000-0000-0000-000000000000'])
-      .where('liquidityDays', '=', 0)
-      .execute();
-    const liquidIds = new Set(liquidAssets.map((a) => a.id));
-    const liquid =
-      (pf.byClass.find((c) => c.assetClass === 'cash')?.valueCents ?? 0) +
-      pf.positions.filter((p) => liquidIds.has(p.assetId)).reduce((a, p) => a + p.marketValueCents, 0);
-    const months = liquid / monthlyExpense;
-    const target = Number(settings.emergencyMonthsTarget);
-    if (months < target) {
+    const r = await emergencyReserve(tx, ws, today, pf);
+    const target = r.targetMonths;
+    if (r.months !== null && r.months < target) {
       out.push({
         rule: 'emergency_reserve',
-        severity: months < target / 2 ? 'warning' : 'info',
+        severity: r.months < target / 2 ? 'warning' : 'info',
         title: 'Reserva de emergência abaixo da meta',
-        message: `Reserva cobre ${months.toFixed(1).replace('.', ',')} meses; sua meta é ${target}.`,
+        message: `Sem salário, a reserva paga as contas por ${r.months.toFixed(1).replace('.', ',')} meses; sua meta é ${target}.`,
         payload: {
           rule_text:
-            'Meses de despesa cobertos por saldo em conta e ativos com liquidez diária vs meta definida por você',
+            'Meses que contas e investimentos com liquidez diária pagam as despesas projetadas sem salário vs meta definida por você',
           numbers: {
-            liquido: formatBRL(liquid),
-            despesa_mensal: formatBRL(monthlyExpense),
-            meses: Number(months.toFixed(2)),
+            liquido: formatBRL(r.reserveCents),
+            despesa_mensal: formatBRL(r.monthlyCostCents),
+            meses: r.months,
             meta_meses: target,
           },
         },

@@ -3,6 +3,7 @@ import { addDays, addMonths, formatBRL, formatDateBR, monthLabel, startOfMonth }
 import type { Actor } from '@sf/api/context';
 import { createDraft } from '@sf/api/domain/drafts';
 import { categorySpend } from '@sf/api/domain/dashboard';
+import { accountShortfalls, safeToSpendFrom, shortfallSentence } from '@sf/api/domain/forecast';
 import { computeProjection } from '@sf/api/domain/projection';
 import { upcoming } from '@sf/api/domain/queries';
 import type { WorkerContext } from '../context.js';
@@ -380,9 +381,51 @@ async function deliver(
       text = `A fatura do ${st.name} de ${formatBRL(remaining)} vence em ${formatDateBR(st.dueDate!)}.${drafts.length ? ' Já pagou? Responda *sim* para registrar.' : ''}`;
       break;
     }
-    case 'balance_alert':
-      text = `⚠️ Sua projeção indica saldo de ${formatBRL(p.closingCents)} em ${monthLabel(p.month, true)}, abaixo do piso de ${formatBRL(p.floorCents)}. Quer que eu mostre o que pesa nesse mês?`;
+    case 'balance_alert': {
+      if (p.type !== 'account_shortfall') {
+        text = `⚠️ Sua projeção indica saldo de ${formatBRL(p.closingCents)} em ${monthLabel(p.month, true)}, abaixo do piso de ${formatBRL(p.floorCents)}. Quer que eu mostre o que pesa nesse mês?`;
+        break;
+      }
+      // os dados podem ter mudado desde o agendamento: só avisa se a conta ainda fica negativa
+      const current = (
+        await withUserContext(app.db, r.userId, (t) => accountShortfalls(t, r.workspaceId, todayLocal, 35))
+      ).find((f) => f.accountId === p.accountId);
+      if (!current) return { status: 'skipped', reason: 'conta não fica mais negativa' };
+      const s = current.suggestion;
+      if (s && member.role !== 'viewer') {
+        const d = await withUserContext(app.db, r.userId, (t) =>
+          createDraft(
+            t,
+            actor,
+            'transfer',
+            {
+              fromAccountId: s.fromAccountId,
+              toAccountId: current.accountId,
+              amountCents: s.amountCents,
+              toAmountCents: null,
+              date: s.date,
+              description: `Cobrir saldo da ${current.accountName}`,
+              status: s.date > todayLocal ? 'scheduled' : 'posted',
+            },
+            {
+              title: `Transferência ${s.fromAccountName} → ${current.accountName}`,
+              summary: `${formatBRL(s.amountCents)} em ${formatDateBR(s.date)}`,
+              lines: [],
+              warnings: [],
+            },
+            conversationId,
+            { computeImpact: false },
+          ),
+        );
+        drafts.push(d);
+      }
+      text = `⚠️ ${shortfallSentence(current)}${
+        drafts.length
+          ? ` Quer que eu registre essa transferência? Responda *sim*. (Eu só anoto; a transferência você faz no banco.)`
+          : ''
+      }`;
       break;
+    }
     case 'weekly_summary':
       text = await weeklySummary(ctx, actor, todayLocal);
       break;
@@ -442,10 +485,10 @@ async function weeklySummary(ctx: WorkerContext, actor: Actor, today: string): P
   return withUserContext(ctx.app.db, actor.userId, async (tx) => {
     const from = addDays(today, -7);
     const spent = await sql<{ cents: number; top: string | null }>`
-      select coalesce(sum(t.amount_cents), 0)::bigint as cents,
+      select coalesce(sum(t.amount_brl_cents), 0)::bigint as cents,
         (select c.name from transactions x join categories c on c.id = x.category_id
           where x.workspace_id = ${actor.workspaceId}::uuid and x.direction = 'out' and x.kind = 'regular' and x.status = 'posted' and x.date > ${from}::date
-          group by c.name order by sum(x.amount_cents) desc limit 1) as top
+          group by c.name order by sum(x.amount_brl_cents) desc limit 1) as top
       from transactions t where t.workspace_id = ${actor.workspaceId}::uuid and t.direction = 'out' and t.kind = 'regular' and t.status = 'posted' and t.date > ${from}::date`.execute(
       tx,
     );
@@ -473,6 +516,12 @@ async function weeklySummary(ctx: WorkerContext, actor: Actor, today: string): P
       proj.minClosing
         ? `Menor saldo projetado: ${formatBRL(proj.minClosing.cents)} em ${monthLabel(proj.minClosing.month, true)}.`
         : '',
+      ((f) =>
+        f.status === 'over'
+          ? ''
+          : `Folga para gastos extras: ${formatBRL(f.extraCents)} sem furar o piso. Dia a dia: ≈ ${formatBRL(f.dailyCents)} por dia até o fim do mês.`)(
+        safeToSpendFrom(proj, today),
+      ),
       ...insights.map((i) => `💡 ${i.message}`),
       'Para não receber mais este resumo, responda "para de mandar resumo".',
     ];
@@ -484,7 +533,7 @@ async function monthlySummary(ctx: WorkerContext, actor: Actor, today: string): 
   return withUserContext(ctx.app.db, actor.userId, async (tx) => {
     const m = addMonths(startOfMonth(today), -1);
     const r = await sql<{ inc: number; exp: number }>`
-      select coalesce(sum(case when direction = 'in' then amount_cents end), 0)::bigint as inc, coalesce(sum(case when direction = 'out' then amount_cents end), 0)::bigint as exp
+      select coalesce(sum(case when direction = 'in' then amount_brl_cents end), 0)::bigint as inc, coalesce(sum(case when direction = 'out' then amount_brl_cents end), 0)::bigint as exp
       from transactions where workspace_id = ${actor.workspaceId}::uuid and kind = 'regular' and status = 'posted' and date >= ${m}::date and date < ${startOfMonth(today)}::date`.execute(
       tx,
     );

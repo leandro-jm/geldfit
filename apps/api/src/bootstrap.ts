@@ -2,7 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import { createDb } from '@sf/db';
-import { providerFromEnv } from '@sf/llm';
+import { providerFromEnv, transcriberFromEnv } from '@sf/llm';
 import { loadConfig, type Config } from './config.js';
 import type { AppContext } from './context.js';
 import { EvolutionChannel } from './channels/evolution.js';
@@ -40,13 +40,24 @@ export function createAppContext(
         ? { ...process.env, LLM_PROVIDER: 'fake' }
         : process.env,
     ),
+    transcriber: transcriberFromEnv(process.env),
     storage: new LocalFileStorage(
       config.FILES_DIR,
       config.FILES_ENCRYPTION_KEY,
       config.FILES_URL_SECRET,
       config.PUBLIC_API_URL,
     ),
-    mailer: createMailer({ host: config.SMTP_HOST, port: config.SMTP_PORT, from: config.SMTP_FROM }),
+    mailer: createMailer(
+      {
+        host: config.SMTP_HOST,
+        port: config.SMTP_PORT,
+        from: config.SMTP_FROM,
+        user: config.SMTP_USER,
+        pass: config.SMTP_PASS,
+        secure: config.SMTP_SECURE,
+      },
+      log,
+    ),
     whatsapp,
     log,
   };

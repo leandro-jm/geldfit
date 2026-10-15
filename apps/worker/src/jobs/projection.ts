@@ -1,11 +1,16 @@
-import { withUserContext } from '@sf/db';
+import { sql, withUserContext } from '@sf/db';
+import { accountShortfalls } from '@sf/api/domain/forecast';
 import { computeProjection } from '@sf/api/domain/projection';
 import type { WorkerContext } from '../context.js';
 import { activeWorkspaces, membersOf } from './util.js';
 
+/** Antecedência máxima do alerta de conta negativa (mais longe que isso, ainda pode mudar). */
+const SHORTFALL_ALERT_DAYS = 15;
+
 /**
  * Recalcula o cache da projeção de cada membro (cada um vê suas contas privadas) e agenda o
- * alerta de saldo abaixo do piso — no máximo 1 por dia por usuário.
+ * alerta de saldo abaixo do piso — no máximo 1 por dia por usuário — e o alerta de conta que vai
+ * ficar negativa (uma vez por conta e data prevista).
  */
 export async function refreshWorkspace(ctx: WorkerContext, workspaceId: string) {
   const { app, sys } = ctx;
@@ -47,13 +52,32 @@ export async function refreshWorkspace(ctx: WorkerContext, workspaceId: string) 
             workspaceId,
             userId: m.userId,
             kind: 'balance_alert',
-            fireAt: new Date(),
+            fireAt: sql<Date>`now()`,
             payload: JSON.stringify({
               month: month.month,
               closingCents: month.closingCents,
               floorCents: proj.floorCents,
             }),
             dedupeKey: `balance_alert:${workspaceId}:${m.userId}:${ws.today}`,
+          })
+          .onConflict((oc) => oc.column('dedupeKey').doNothing())
+          .execute();
+      }
+      if (m.role === 'viewer') return;
+      for (const f of await accountShortfalls(tx, workspaceId, ws.today, SHORTFALL_ALERT_DAYS)) {
+        // saldo já negativo sem nada acontecendo hoje não gera cobrança diária
+        if (f.date === ws.today && !f.cause) continue;
+        await tx
+          .insertInto('reminders')
+          .values({
+            workspaceId,
+            userId: m.userId,
+            kind: 'balance_alert',
+            targetType: 'account',
+            targetId: f.accountId,
+            fireAt: sql<Date>`now()`,
+            payload: JSON.stringify({ type: 'account_shortfall', ...f }),
+            dedupeKey: `account_shortfall:${f.accountId}:${f.date}:${m.userId}`,
           })
           .onConflict((oc) => oc.column('dedupeKey').doNothing())
           .execute();

@@ -18,6 +18,7 @@ export function makeApp(env: TestEnv, llm: LLMProvider = new FakeProvider()): Ap
     config,
     db: env.app.db,
     llm,
+    transcriber: null,
     storage: new LocalFileStorage(
       dir,
       randomBytes(32).toString('base64'),

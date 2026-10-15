@@ -14,7 +14,7 @@ import {
   meKey,
 } from '@/lib/queries';
 import { useWorkspace } from '@/lib/workspace';
-import { downloadBlob, formatDateTimeBR, initials } from '@/lib/utils';
+import { downloadBlob, formatDateTimeBR, initials, todayLocalISO } from '@/lib/utils';
 import { useSignOut } from '@/components/layout/shell-parts';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -658,9 +658,7 @@ function DataSection() {
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
-            onClick={() =>
-              void exportFile('/api/export', `saude-financeira-${new Date().toISOString().slice(0, 10)}.json`)
-            }
+            onClick={() => void exportFile('/api/export', `saude-financeira-${todayLocalISO()}.json`)}
           >
             <Download aria-hidden /> Exportar tudo (JSON)
           </Button>

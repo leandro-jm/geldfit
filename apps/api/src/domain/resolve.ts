@@ -19,6 +19,9 @@ const ALIASES: Record<string, string[]> = {
   xp: ['xp', 'xp investimentos'],
   btg: ['btg', 'btg pactual'],
   picpay: ['picpay'],
+  nomad: ['nomad'],
+  wise: ['wise'],
+  avenue: ['avenue'],
 };
 
 function tokensFor(name: string, institution: string): string[] {
@@ -88,7 +91,7 @@ function pick<T extends Named>(items: T[], hint: string | null | undefined, what
 export async function resolveAccount(tx: Tx, ws: string, hint: string | null | undefined) {
   const accounts = await tx
     .selectFrom('accounts')
-    .select(['id', 'name', 'institution', 'type'])
+    .select(['id', 'name', 'institution', 'type', 'currency'])
     .where('workspaceId', '=', ws)
     .where('archivedAt', 'is', null)
     .execute();
@@ -113,7 +116,7 @@ export async function resolveCard(tx: Tx, ws: string, hint: string | null | unde
 const KEYWORDS: Array<[RegExp, string]> = [
   [/\b(luz|energia|cemig|copel|celesc|enel|eletricidade)\b/, 'Energia'],
   [/\b(agua|saneamento|sabesp|casan|corsan)\b/, 'Água'],
-  [/\b(internet|telefone|celular|claro|vivo|tim|oi)\b/, 'Internet e telefone'],
+  [/\b(internet|telefone|celular|claro|vivo|tim|oi|telecomunicacoes)\b/, 'Internet e telefone'],
   [/\b(mercado|supermercado|atacad|hortifruti|feira|padaria|acougue)\b/, 'Mercado'],
   [/\b(restaurante|lanche|ifood|pizza|bar|cafe|almoco|jantar)\b/, 'Restaurantes'],
   [/\b(uber|99|onibus|metro|estacionamento|pedagio|taxi)\b/, 'Transporte'],

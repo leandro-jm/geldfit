@@ -3,6 +3,7 @@ import {
   formatBRL,
   formatDateBR,
   monthLabel,
+  parsePaymentCode,
   startOfMonth,
   statementFor,
   type DraftPreview,
@@ -15,6 +16,7 @@ import { resolveAsset } from '../domain/portfolio.js';
 import { resolveAccount, resolveCard, resolveCategory, AmbiguityError } from '../domain/resolve.js';
 import { ExtractedDoc } from '../import/extract.js';
 import { defineTool, type ToolCtx } from './tool-kit.js';
+import { emitBillDraft } from './tools-bills.js';
 
 async function loadDoc(ctx: ToolCtx, attachmentId: string) {
   const att = await ctx.tx
@@ -55,6 +57,13 @@ export const parseAttachmentTool = defineTool({
           }
         : null,
       pension: doc.pension,
+      payment: doc.payment
+        ? {
+            amount: doc.payment.amount_cents !== null ? formatBRL(doc.payment.amount_cents) : null,
+            due: doc.payment.due_date,
+            payee: doc.payment.payee,
+          }
+        : null,
       trades: doc.trades.length,
       sample: doc.transactions
         .slice(0, 5)
@@ -67,7 +76,7 @@ export const parseAttachmentTool = defineTool({
 export const importAttachmentTool = defineTool({
   name: 'import_attachment',
   description:
-    'Prepara a importação de um anexo já processado (extrato, fatura, extrato de previdência, nota de corretagem): resolve conta/cartão, deduplica e gera uma prévia em lote para confirmação.',
+    'Prepara a importação de um anexo já processado (extrato, fatura, extrato de previdência, nota de corretagem, boleto/conta a pagar): resolve conta/cartão, deduplica e gera uma prévia para confirmação. Boletos viram conta agendada com lembrete de vencimento.',
   kind: 'draft',
   heavy: true,
   schema: z.object({
@@ -117,6 +126,30 @@ export const importAttachmentTool = defineTool({
       );
       ctx.emitDraft(draft);
       return { draft_id: draft.id, summary: 'Prévia do extrato de previdência criada; peça confirmação.' };
+    }
+
+    if (doc.doc_type === 'boleto') {
+      const p = doc.payment;
+      const raw = p?.barcode_line || p?.pix_code || '';
+      const parsed = raw ? parsePaymentCode(raw, ctx.today) : null;
+      const warnings: string[] = [];
+      if (!parsed?.ok)
+        warnings.push(
+          raw
+            ? 'Não consegui validar o código de barras da imagem: confira valor e vencimento.'
+            : 'O documento não mostra a linha digitável: confira valor e vencimento.',
+        );
+      const code = parsed?.ok ? parsed.code : null;
+      // valor e vencimento do código validado têm prioridade sobre a leitura visual
+      return emitBillDraft(ctx, {
+        code,
+        amountCents: code?.amountCents ?? p?.amount_cents ?? null,
+        dueDate: code?.dueDate ?? p?.due_date ?? null,
+        payee: p?.payee ?? doc.institution ?? null,
+        account: input.account,
+        attachmentId: att.id,
+        warnings,
+      });
     }
 
     if ((doc.doc_type === 'brokerage_note' || doc.doc_type === 'position_statement') && doc.trades.length) {

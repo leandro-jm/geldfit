@@ -1,5 +1,14 @@
 import { z } from 'zod';
-import { addMonths, formatBRL, formatDateBR, monthLabel, startOfMonth, type DraftPreview } from '@sf/shared';
+import {
+  addMonths,
+  formatBRL,
+  formatDateBR,
+  formatMoney,
+  monthLabel,
+  startOfMonth,
+  type Currency,
+  type DraftPreview,
+} from '@sf/shared';
 import { sql } from '@sf/db';
 import { AppError, notFound } from '../lib/errors.js';
 import { createDraft } from '../domain/drafts.js';
@@ -58,7 +67,7 @@ async function emit(
 export const listAccountsTool = defineTool({
   name: 'list_accounts',
   description:
-    'Lista as contas do workspace (banco, tipo, saldo atual, se está desatualizada). Use para resolver "no BB", "no Santander".',
+    'Lista as contas do workspace (banco, tipo, moeda, saldo atual, se está desatualizada). Contas em USD trazem o saldo em dólar e o equivalente em reais pela PTAX. Use para resolver "no BB", "no Santander".',
   kind: 'read',
   schema: z.object({}),
   async run(ctx) {
@@ -68,7 +77,14 @@ export const listAccountsTool = defineTool({
       name: a.name,
       institution: a.institution,
       type: a.type,
-      balance: formatBRL(a.balanceCents),
+      currency: a.currency,
+      balance: formatMoney(a.balanceCents, a.currency),
+      ...(a.fx
+        ? {
+            balance_brl: formatBRL(a.balanceBrlCents),
+            ptax: `${a.fx.rate.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} em ${formatDateBR(a.fx.date)}`,
+          }
+        : {}),
       stale: a.stale,
       private: a.isPrivate,
     }));
@@ -213,7 +229,8 @@ export const queryTransactionsTool = defineTool({
         id: t.id,
         date: t.date,
         description: t.description,
-        amount: formatBRL(t.amountCents),
+        amount: formatMoney(t.amountCents, t.currency),
+        ...(t.currency !== 'BRL' ? { amount_brl: formatBRL(t.amountBrlCents) } : {}),
         direction: t.direction,
         category: t.categoryName,
         status: t.status,
@@ -238,7 +255,7 @@ export const getProjectionTool = defineTool({
       if (!m) throw new AppError(422, 'A projeção cobre só os próximos 24 meses.');
       const monthEnd = addMonths(month, 1);
       const top = await sql<{ description: string; amount: number; kind: string }>`
-        (select t.description, t.amount_cents::bigint as amount, 'conta' as kind from transactions t
+        (select t.description, t.amount_brl_cents::bigint as amount, 'conta' as kind from transactions t
           where t.workspace_id = ${ws}::uuid and t.direction = 'out' and t.account_id is not null and t.kind = 'regular'
             and (t.status = 'scheduled' or t.date > ${ctx.today}::date) and t.date >= ${month}::date and t.date < ${monthEnd}::date)
         union all
@@ -417,12 +434,14 @@ export const draftTransactionsTool = defineTool({
     const items = [];
     const previewItems: NonNullable<DraftPreview['items']> = [];
     const warnings: string[] = [];
+    const currencies = new Set<Currency>();
     for (const it of input.items) {
       const amountCents = toCents(it.amount);
       const date = toDate(it.date ?? null, ctx.today);
       const n = it.installments ?? 1;
       let accountId: string | null = null;
       let cardId: string | null = null;
+      let currency: Currency = 'BRL';
       let where: string;
       if (it.card) {
         const card = await resolveCard(ctx.tx, ws, it.card);
@@ -432,8 +451,10 @@ export const draftTransactionsTool = defineTool({
         if (n > 1) throw new AppError(422, 'Parcelamento só em cartão de crédito. Em qual cartão foi?');
         const acc = await resolveAccount(ctx.tx, ws, it.account);
         accountId = acc.id;
+        currency = acc.currency as Currency;
         where = acc.name;
       }
+      currencies.add(currency);
       const cat = await resolveCategory(ctx.tx, ws, {
         hint: it.category,
         description: it.description,
@@ -460,7 +481,7 @@ export const draftTransactionsTool = defineTool({
       const dup = (await findDuplicates(ctx.tx, ws, [hash])).size > 0;
       if (dup)
         warnings.push(
-          `Já existe um lançamento igual: ${it.description} ${formatBRL(amountCents)} em ${formatDateBR(date)}.`,
+          `Já existe um lançamento igual: ${it.description} ${formatMoney(amountCents, currency)} em ${formatDateBR(date)}.`,
         );
       if (n > 1 && cardId) {
         const { planInstallments } = await import('@sf/shared');
@@ -484,6 +505,7 @@ export const draftTransactionsTool = defineTool({
           date,
           description: it.description,
           amountCents,
+          currency,
           direction: it.direction,
           category: cat.name,
           duplicate: dup,
@@ -493,6 +515,8 @@ export const draftTransactionsTool = defineTool({
     }
     const total = items.reduce((a, i) => a + i.amountCents, 0);
     const first = previewItems[0]!;
+    // Lançamentos em moedas diferentes não somam; o total só aparece quando a moeda é única
+    const totalCurrency = currencies.size === 1 ? [...currencies][0]! : null;
     const preview: DraftPreview = {
       title:
         items.length === 1
@@ -500,13 +524,16 @@ export const draftTransactionsTool = defineTool({
           : `${items.length} lançamentos`,
       summary:
         items.length === 1
-          ? `${formatBRL(total)} em ${formatDateBR(first.date)} · ${first.note} · ${first.category}`
-          : `Total ${formatBRL(total)}`,
+          ? `${formatMoney(total, totalCurrency!)} em ${formatDateBR(first.date)} · ${first.note} · ${first.category}`
+          : totalCurrency
+            ? `Total ${formatMoney(total, totalCurrency)}`
+            : `${items.length} lançamentos em reais e dólares`,
       lines: [],
       items: previewItems,
       totals: {
         count: items.length,
         amountCents: total,
+        currency: totalCurrency,
         duplicates: previewItems.filter((p) => p.duplicate).length,
         lowConfidence: 0,
       },
@@ -519,10 +546,15 @@ export const draftTransactionsTool = defineTool({
 export const draftTransferTool = defineTool({
   name: 'draft_transfer',
   description:
-    'Prepara uma transferência entre duas contas do workspace (não conta como receita nem despesa).',
+    'Prepara uma transferência entre duas contas do workspace (não conta como receita nem despesa). Entre conta em reais e conta em dólar (ex.: envio para a Nomad), amount é o valor que sai da origem e to_amount o que chegou no destino.',
   kind: 'draft',
   schema: z.object({
-    amount: amountInput,
+    amount: amountInput.describe('Valor que sai da conta de origem, na moeda dela'),
+    to_amount: amountInput
+      .nullish()
+      .describe(
+        'Valor recebido no destino, na moeda dele. Obrigatório quando as moedas das contas são diferentes',
+      ),
     from_account: z.string(),
     to_account: z.string(),
     date: dateInput.optional(),
@@ -534,15 +566,19 @@ export const draftTransferTool = defineTool({
     const to = await resolveAccount(ctx.tx, ws, input.to_account);
     if (from.id === to.id) throw new AppError(422, 'Origem e destino são a mesma conta.');
     const amountCents = toCents(input.amount);
+    const fromCur = from.currency as Currency;
+    const toCur = to.currency as Currency;
+    const toAmountCents = fromCur !== toCur ? toCents(input.to_amount, 'valor recebido no destino') : null;
     const date = toDate(input.date ?? null, ctx.today);
     const description = input.description ?? `Transferência ${from.name} → ${to.name}`;
+    const received = toAmountCents ? ` (chegam ${formatMoney(toAmountCents, toCur)})` : '';
     return emit(
       ctx,
       'transfer',
-      { fromAccountId: from.id, toAccountId: to.id, amountCents, date, description },
+      { fromAccountId: from.id, toAccountId: to.id, amountCents, toAmountCents, date, description },
       {
         title: 'Transferência',
-        summary: `${formatBRL(amountCents)} de ${from.name} para ${to.name} em ${formatDateBR(date)}`,
+        summary: `${formatMoney(amountCents, fromCur)} de ${from.name} para ${to.name}${received} em ${formatDateBR(date)}`,
         lines: [],
         warnings: [],
       },
@@ -594,6 +630,7 @@ export const draftRecurrenceTool = defineTool({
     const amountCents = toCents(input.amount);
     let accountId: string | null = null;
     let cardId: string | null = null;
+    let currency: Currency = 'BRL';
     let where: string;
     if (input.card) {
       const c = await resolveCard(ctx.tx, ws, input.card);
@@ -602,6 +639,7 @@ export const draftRecurrenceTool = defineTool({
     } else {
       const a = await resolveAccount(ctx.tx, ws, input.account);
       accountId = a.id;
+      currency = a.currency as Currency;
       where = a.name;
     }
     const cat = await resolveCategory(ctx.tx, ws, {
@@ -657,7 +695,7 @@ export const draftRecurrenceTool = defineTool({
       { mode: input.recurrence_id ? 'update' : 'create', id: input.recurrence_id ?? null, fields },
       {
         title: `${input.recurrence_id ? 'Alterar' : 'Nova'} recorrência: ${input.description}`,
-        summary: `${input.direction === 'in' ? 'Entra' : 'Sai'} ${formatBRL(amountCents)} ${ruleText(rule)} · ${where} · ${cat.name}`,
+        summary: `${input.direction === 'in' ? 'Entra' : 'Sai'} ${formatMoney(amountCents, currency)} ${ruleText(rule)} · ${where} · ${cat.name}`,
         lines: [
           { label: 'Próxima', value: next ? formatDateBR(next) : '—' },
           { label: 'Até', value: endDate ? formatDateBR(endDate) : 'sem data final' },
@@ -671,14 +709,19 @@ export const draftRecurrenceTool = defineTool({
 
 export const draftAccountTool = defineTool({
   name: 'draft_account',
-  description: 'Cadastra (ou altera, com account_id) uma conta: banco, tipo, saldo inicial e data do saldo.',
+  description:
+    'Cadastra (ou altera, com account_id) uma conta: banco, tipo, moeda, saldo inicial e data do saldo. Contas internacionais em dólar (Nomad, Wise, Avenue...) usam currency USD e saldo em dólares.',
   kind: 'draft',
   schema: z.object({
     account_id: z.string().uuid().nullish(),
     institution: z.string().min(1),
     name: z.string().nullish(),
     type: z.enum(['checking', 'savings', 'investment', 'cash']).default('checking'),
-    opening_balance: amountInput.describe('Saldo na data informada (pode ser 0)'),
+    currency: z
+      .enum(['BRL', 'USD'])
+      .nullish()
+      .describe('Moeda da conta: BRL (padrão) ou USD para conta em dólar. Na alteração, omita para manter'),
+    opening_balance: amountInput.describe('Saldo na data informada, na moeda da conta (pode ser 0)'),
     opening_date: dateInput.nullish(),
     is_private: z.boolean().nullish().describe('Conta privada: só o usuário vê'),
   }),
@@ -692,10 +735,21 @@ export const draftAccountTool = defineTool({
     const pretty = (v: string) =>
       v.trim().length <= 3 ? v.trim().toUpperCase() : v.trim().replace(/\b\p{L}/gu, (c) => c.toUpperCase());
     const name = pretty(input.name?.trim() || input.institution);
+    let currency: Currency = input.currency ?? 'BRL';
+    if (input.account_id && !input.currency) {
+      const current = await ctx.tx
+        .selectFrom('accounts')
+        .select('currency')
+        .where('id', '=', input.account_id)
+        .executeTakeFirst();
+      if (!current) throw notFound('Conta');
+      currency = current.currency as Currency;
+    }
     const fields = {
       institution: pretty(input.institution),
       name,
       type: input.type,
+      currency,
       openingBalanceCents: raw,
       openingDate,
       isPrivate: input.is_private ?? false,
@@ -712,7 +766,7 @@ export const draftAccountTool = defineTool({
       { mode: input.account_id ? 'update' : 'create', id: input.account_id ?? null, fields },
       {
         title: `${input.account_id ? 'Alterar' : 'Nova'} conta: ${name}`,
-        summary: `${types[input.type]} · saldo ${formatBRL(raw)} em ${formatDateBR(openingDate)}${fields.isPrivate ? ' · privada' : ''}`,
+        summary: `${types[input.type]}${currency === 'USD' ? ' em dólar' : ''} · saldo ${formatMoney(raw, currency)} em ${formatDateBR(openingDate)}${fields.isPrivate ? ' · privada' : ''}`,
         lines: [],
         warnings: [],
       },
@@ -1325,7 +1379,7 @@ export const draftBudgetTool = defineTool({
 export const draftGoalTool = defineTool({
   name: 'draft_goal',
   description:
-    'Cria ou altera uma meta (reserva de emergência, viagem) com aporte mensal que entra na projeção.',
+    'Cria ou altera uma meta (reserva de emergência, viagem) com aporte mensal que entra na projeção. Com data alvo, a prévia traz o aporte mensal necessário para cumprir o prazo; se o usuário não disser o aporte, sugira esse valor.',
   kind: 'draft',
   schema: z.object({
     goal_id: z.string().uuid().nullish(),
@@ -1346,6 +1400,30 @@ export const draftGoalTool = defineTool({
     const targetDate = input.target_date ? toDate(input.target_date, ctx.today, { future: true }) : null;
     const remaining = Math.max(0, targetCents - saved);
     const months = monthly > 0 ? Math.ceil(remaining / monthly) : null;
+    const { goalPlan } = await import('@sf/shared');
+    const plan = goalPlan(
+      { targetCents, savedCents: saved, monthlyContributionCents: monthly, startMonth, targetDate },
+      ctx.today,
+    );
+    const lines: DraftPreview['lines'] = [];
+    const warnings: string[] = [];
+    if (months)
+      lines.push({
+        label: 'Previsão',
+        value: `${months} meses (${monthLabel(addMonths(startMonth, months - 1), true)})`,
+      });
+    if (plan.recommendedMonthlyCents && targetDate) {
+      lines.push({
+        label: 'Aporte para o prazo',
+        value: `${formatBRL(plan.recommendedMonthlyCents)}/mês (${plan.contributionsLeft} aportes até ${formatDateBR(targetDate)})`,
+      });
+      if (plan.status === 'behind')
+        warnings.push(
+          monthly
+            ? `Com ${formatBRL(monthly)}/mês a meta não fica pronta até ${formatDateBR(targetDate)}: faltariam ${formatBRL(remaining - monthly * plan.contributionsLeft!)}.`
+            : `Sem aporte mensal a meta não entra na projeção. Para o prazo, seriam ${formatBRL(plan.recommendedMonthlyCents)}/mês.`,
+        );
+    }
     return emit(
       ctx,
       'goal',
@@ -1365,15 +1443,8 @@ export const draftGoalTool = defineTool({
       {
         title: `Meta: ${input.name}`,
         summary: `${formatBRL(targetCents)}${monthly ? ` · aporte de ${formatBRL(monthly)}/mês` : ''}`,
-        lines: months
-          ? [
-              {
-                label: 'Previsão',
-                value: `${months} meses (${monthLabel(addMonths(startMonth, months - 1), true)})`,
-              },
-            ]
-          : [],
-        warnings: [],
+        lines,
+        warnings,
       },
     );
   },

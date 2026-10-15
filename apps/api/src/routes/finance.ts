@@ -9,6 +9,7 @@ import { confirmDraft, createDraft, DRAFT_SCHEMAS, type DraftKind } from '../dom
 import { workspaceToday } from '../domain/ledger.js';
 import { buildPortfolio } from '../domain/portfolio.js';
 import { computeProjection } from '../domain/projection.js';
+import { emergencyReserve, safeToSpend } from '../domain/forecast.js';
 import {
   listAccounts,
   listCards,
@@ -184,6 +185,16 @@ export async function financeRoutes(f: FastifyInstance, app: AppContext, guards:
   f.get('/api/dashboard/summary', pre, async (req) =>
     inActor(app, req, async (tx, a) =>
       dashboardSummary(tx, a.workspaceId, await workspaceToday(tx, a.workspaceId)),
+    ),
+  );
+  f.get('/api/dashboard/safe-to-spend', pre, async (req) =>
+    inActor(app, req, async (tx, a) =>
+      safeToSpend(tx, a.workspaceId, await workspaceToday(tx, a.workspaceId)),
+    ),
+  );
+  f.get('/api/dashboard/emergency-reserve', pre, async (req) =>
+    inActor(app, req, async (tx, a) =>
+      emergencyReserve(tx, a.workspaceId, await workspaceToday(tx, a.workspaceId)),
     ),
   );
   f.get('/api/dashboard/upcoming', pre, async (req) => {

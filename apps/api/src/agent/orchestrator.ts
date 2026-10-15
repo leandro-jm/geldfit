@@ -168,7 +168,7 @@ export async function handleMessage(
     const today = await workspaceToday(tx, actor.workspaceId);
     const accounts = await tx
       .selectFrom('accounts')
-      .select(['name', 'institution', 'type'])
+      .select(['name', 'institution', 'type', 'currency'])
       .where('workspaceId', '=', actor.workspaceId)
       .where('archivedAt', 'is', null)
       .execute();
@@ -332,7 +332,7 @@ export function routeTier(text: string, hasAttachments: boolean): ModelTier {
   const f = fold(text);
   if (f.length > 280) return 'large';
   if (
-    /\b(simul|e se|projec|carteira|investimento|dolar|insight|compar|por que|porque|analis|planej|meta|reserva|aloca|rebalance|fundo|cdi|ibov|desempenho|rentab|tendencia|evolucao)\w*/.test(
+    /\b(simul|e se|projec|carteira|investimento|dolar|insight|compar|por que|porque|analis|planej|meta|reserva|aloca|rebalance|fundo|cdi|ibov|desempenho|rentab|tendencia|evolucao|posso comprar|vale a pena|a vista|demitid|desligad|sem salario)\w*/.test(
       f,
     )
   )

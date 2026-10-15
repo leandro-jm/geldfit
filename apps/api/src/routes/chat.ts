@@ -7,6 +7,7 @@ import { AppError, notFound } from '../lib/errors.js';
 import { actorOf, inActor, openSSE } from '../lib/http.js';
 import { handleMessage } from '../agent/orchestrator.js';
 import { cancelDraft, confirmDraft, DRAFT_SCHEMAS, toDraftDTO, type DraftKind } from '../domain/drafts.js';
+import { MAX_AUDIO_BYTES, transcribeAudio } from '../import/audio.js';
 import { MAX_UPLOAD_BYTES, saveAttachment } from '../import/service.js';
 import type { DataChangeNotifier } from '../realtime/notifier.js';
 
@@ -45,6 +46,16 @@ export async function chatRoutes(
     } finally {
       stream.end();
     }
+  });
+
+  /** Ditado: transcreve o áudio gravado no navegador; o texto volta para a caixa de mensagem. */
+  f.post('/api/chat/transcribe', pre, async (req) => {
+    const actor = actorOf(req);
+    const file = await req.file({ limits: { fileSize: MAX_AUDIO_BYTES, files: 1 } });
+    if (!file) throw new AppError(400, 'Nenhum áudio enviado.');
+    const data = await file.toBuffer();
+    if (file.file.truncated) throw new AppError(413, 'Áudio longo demais.');
+    return { text: await transcribeAudio(app, actor, { data, mime: file.mimetype }) };
   });
 
   f.get('/api/chat/history', pre, async (req) => {

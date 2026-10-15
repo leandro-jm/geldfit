@@ -18,6 +18,11 @@ describe('parseAmount', () => {
     ['dois mil e quinhentos', 250_000],
     ['8.500', 850_000],
     ['1234.56', 123_456],
+    ['US$ 1.200', 120_000],
+    ['$ 49,90', 4_990],
+    ['200 dólares', 20_000],
+    ['3 mil reais', 300_000],
+    ['duzentos dólares', 20_000],
   ])('%s → %i', (input, cents) => {
     expect(parseAmount(input)).toBe(cents);
   });

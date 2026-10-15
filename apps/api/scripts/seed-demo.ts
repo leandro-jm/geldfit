@@ -124,6 +124,40 @@ await act('account', {
     isPrivate: false,
   },
 });
+// Conta em dólar: a conversão usa a PTAX, que o worker carrega ao subir
+const hasPtax = await app.db
+  .selectFrom('benchmarks')
+  .select('date')
+  .where('series', '=', 'PTAX_USD')
+  .executeTakeFirst();
+if (hasPtax) {
+  const nomad = (
+    await act('account', {
+      mode: 'create',
+      fields: {
+        institution: 'Nomad',
+        name: 'Nomad',
+        type: 'checking',
+        currency: 'USD',
+        openingBalanceCents: 85_000,
+        openingDate: addDays(start, -1),
+        isPrivate: false,
+      },
+    })
+  ).ids[0]!;
+  await act('transfer', {
+    fromAccountId: bb,
+    toAccountId: nomad,
+    amountCents: 280_000,
+    toAmountCents: 50_000,
+    date: addDays(start, 20),
+    description: 'Envio para a Nomad',
+  });
+} else {
+  console.log(
+    'PTAX ainda não carregada: a conta Nomad (dólar) não foi criada. Suba o worker e rode de novo.',
+  );
+}
 const card = (
   await act('card', {
     mode: 'create',
