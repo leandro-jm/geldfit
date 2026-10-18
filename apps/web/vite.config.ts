@@ -50,11 +50,16 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': { target: API, changeOrigin: false, ws: false },
+      // descoberta OAuth do servidor MCP
+      '/.well-known/oauth-': { target: API, changeOrigin: false },
     },
   },
   preview: {
     port: 4173,
-    proxy: { '/api': { target: API, changeOrigin: false } },
+    proxy: {
+      '/api': { target: API, changeOrigin: false },
+      '/.well-known/oauth-': { target: API, changeOrigin: false },
+    },
   },
   build: {
     target: 'es2022',

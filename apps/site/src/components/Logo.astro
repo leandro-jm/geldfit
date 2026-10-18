@@ -1,0 +1,21 @@
+---
+interface Props {
+  class?: string;
+}
+const { class: className } = Astro.props;
+---
+
+<span class:list={['inline-flex items-center gap-2.5 whitespace-nowrap font-semibold tracking-tight', className]}>
+  <svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" class="shrink-0">
+    <rect width="32" height="32" rx="9" fill="var(--primary)"></rect>
+    <path
+      d="M8 20.5l5-5 4 3.5 7-8"
+      fill="none"
+      stroke="var(--primary-foreground)"
+      stroke-width="2.6"
+      stroke-linecap="round"
+      stroke-linejoin="round"></path>
+    <circle cx="24" cy="11" r="2" fill="var(--primary-foreground)"></circle>
+  </svg>
+  <span class="max-[379px]:sr-only">Saúde Financeira</span>
+</span>

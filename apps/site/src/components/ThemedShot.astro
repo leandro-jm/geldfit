@@ -1,0 +1,44 @@
+---
+// Tela do app com versão clara e escura: o navegador escolhe pela preferência do sistema.
+import type { ImageMetadata } from 'astro';
+import { getImage } from 'astro:assets';
+
+interface Props {
+  light: ImageMetadata;
+  dark?: ImageMetadata;
+  alt: string;
+  widths: number[];
+  sizes: string;
+  eager?: boolean;
+  class?: string;
+}
+const { light, dark, alt, widths, sizes, eager = false, class: className } = Astro.props;
+
+async function srcset(img: ImageMetadata, format: 'avif' | 'webp') {
+  const list = widths.filter((w) => w <= img.width);
+  const out = await Promise.all(list.map((w) => getImage({ src: img, width: w, format, quality: 78 })));
+  return out.map((r, i) => `${r.src} ${list[i]}w`).join(', ');
+}
+const sources: Array<{ media?: string; type: string; srcset: string }> = [];
+if (dark) {
+  sources.push({ media: '(prefers-color-scheme: dark)', type: 'image/avif', srcset: await srcset(dark, 'avif') });
+  sources.push({ media: '(prefers-color-scheme: dark)', type: 'image/webp', srcset: await srcset(dark, 'webp') });
+}
+sources.push({ type: 'image/avif', srcset: await srcset(light, 'avif') });
+sources.push({ type: 'image/webp', srcset: await srcset(light, 'webp') });
+const fallback = await getImage({ src: light, width: Math.min(widths.at(-1) ?? light.width, light.width), format: 'webp' });
+---
+
+<picture>
+  {sources.map((s) => <source media={s.media} type={s.type} srcset={s.srcset} sizes={sizes} />)}
+  <img
+    src={fallback.src}
+    alt={alt}
+    width={light.width}
+    height={light.height}
+    loading={eager ? 'eager' : 'lazy'}
+    decoding={eager ? 'sync' : 'async'}
+    fetchpriority={eager ? 'high' : 'auto'}
+    class:list={['block h-auto w-full', className]}
+  />
+</picture>

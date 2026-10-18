@@ -30,6 +30,7 @@ import { ImportsPage, ImportReviewPage } from '@/pages/imports-page';
 import { SettingsPage } from '@/pages/settings-page';
 import { MorePage } from '@/pages/more-page';
 import { AssistantPage } from '@/pages/assistant-page';
+import { OAuthAuthorizePage, type OAuthSearch } from '@/pages/auth/oauth-authorize-page';
 
 const PUBLIC = ['/login', '/cadastro'];
 
@@ -66,6 +67,7 @@ const TITLES: Record<string, string> = {
   '/chat': 'Chat',
   '/login': 'Entrar',
   '/cadastro': 'Criar conta',
+  '/oauth/autorizar': 'Conectar assistente',
 };
 
 function Root() {
@@ -93,7 +95,8 @@ function Root() {
   }
   if (isPublic) return <Navigate to="/" replace />;
   if (!me.data.consented) return <ConsentPage />;
-  if (path.startsWith('/convite/')) return <Outlet />;
+  // telas cheias, fora do shell do app
+  if (path.startsWith('/convite/') || path === '/oauth/autorizar') return <Outlet />;
 
   return (
     <WorkspaceProvider me={me.data}>
@@ -153,6 +156,25 @@ const inviteRoute = createRoute({
   },
 });
 
+const OAUTH_KEYS = [
+  'client_id',
+  'redirect_uri',
+  'response_type',
+  'code_challenge',
+  'code_challenge_method',
+  'state',
+  'scope',
+] as const;
+const oauthRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/oauth/autorizar',
+  validateSearch: (s: Record<string, unknown>): OAuthSearch =>
+    Object.fromEntries(OAUTH_KEYS.map((k) => [k, s[k] == null ? undefined : String(s[k])])),
+  component: function OAuthAuthorize() {
+    return <OAuthAuthorizePage search={oauthRoute.useSearch()} />;
+  },
+});
+
 function page<const P extends string>(path: P, component: () => React.ReactNode) {
   return createRoute({ getParentRoute: () => rootRoute, path, component });
 }
@@ -170,6 +192,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   signupRoute,
   inviteRoute,
+  oauthRoute,
   page('/', DashboardPage),
   page('/projecao', ProjectionPage),
   page('/lancamentos', TransactionsPage),

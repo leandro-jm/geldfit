@@ -20,6 +20,7 @@
     "@fastify/helmet": "^13.1.2",
     "@fastify/multipart": "^10.1.3",
     "@fastify/rate-limit": "^11.2.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@sf/db": "workspace:*",
     "@sf/llm": "workspace:*",
     "@sf/shared": "workspace:*",

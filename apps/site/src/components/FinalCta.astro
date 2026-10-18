@@ -1,0 +1,23 @@
+---
+import { LOGIN_URL, SIGNUP_URL } from '../data/content';
+import Icon from './Icon.astro';
+---
+
+<section class="pb-20 pt-6 sm:pb-28" aria-labelledby="cta-title">
+  <div class="container-page">
+    <div class="relative overflow-hidden rounded-[var(--radius-3xl)] bg-primary px-6 py-16 text-center text-primary-foreground sm:px-12" data-reveal="zoom">
+      <div class="pointer-events-none absolute -left-24 -top-24 size-72 rounded-full bg-white/10 blur-2xl" aria-hidden="true"></div>
+      <div class="pointer-events-none absolute -bottom-32 -right-16 size-96 rounded-full bg-white/10 blur-2xl" aria-hidden="true"></div>
+      <h2 id="cta-title" class="relative mx-auto max-w-2xl text-3xl font-bold tracking-tight text-balance sm:text-5xl sm:leading-[1.08]">
+        Descubra hoje como vai estar o seu dinheiro em 2028.
+      </h2>
+      <p class="relative mx-auto mt-5 max-w-xl text-lg opacity-85">Leva menos de um minuto para criar a conta. Sem cartão de crédito.</p>
+      <div class="relative mt-9 flex flex-col justify-center gap-3 sm:flex-row">
+        <a href={SIGNUP_URL} class="btn bg-white text-[#1c4f9c] shadow-lg hover:-translate-y-px">
+          Criar conta grátis <Icon name="arrow" size={18} />
+        </a>
+        <a href={LOGIN_URL} class="btn border border-white/30 hover:bg-white/10">Já tenho conta</a>
+      </div>
+    </div>
+  </div>
+</section>

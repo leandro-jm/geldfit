@@ -9,3 +9,5 @@ data
 **/test-results
 **/e2e/__screenshots__
 docs
+**/.astro
+apps/site/scripts/capture/out

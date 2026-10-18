@@ -1,0 +1,66 @@
+---
+import { comparison } from '../data/content';
+import Icon from './Icon.astro';
+---
+
+<section id="comparativo" class="py-20 sm:py-28" aria-labelledby="comp-title">
+  <div class="container-page">
+    <div class="mx-auto max-w-2xl text-center">
+      <p class="text-sm font-semibold uppercase tracking-[0.14em] text-primary" data-reveal>Comparativo honesto</p>
+      <h2 id="comp-title" class="mt-3 text-3xl font-bold tracking-tight text-balance sm:text-5xl sm:leading-[1.08]" data-reveal style="--d:1">
+        Onde a gente se diferencia (e onde empata)
+      </h2>
+      <p class="mt-5 text-lg text-muted-foreground text-pretty" data-reveal style="--d:2">
+        Em relação aos assistentes financeiros de WhatsApp mais comuns no Brasil.
+      </p>
+    </div>
+
+    <div class="card mx-auto mt-12 max-w-4xl overflow-hidden" data-reveal>
+      <table class="w-full text-left text-[15px]">
+        <caption class="sr-only">Saúde Financeira comparado a apps de finanças por WhatsApp</caption>
+        <thead class="hidden bg-subtle text-sm sm:table-header-group">
+          <tr>
+            <th scope="col" class="px-6 py-4 font-semibold">Recurso</th>
+            <th scope="col" class="w-40 px-4 py-4 text-center font-semibold text-primary">Saúde Financeira</th>
+            <th scope="col" class="w-48 px-4 py-4 text-center font-semibold text-muted-foreground">Apps comuns</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-border">
+          {
+            comparison.map((r) => (
+              <tr class="grid grid-cols-2 gap-x-3 px-5 py-4 sm:table-row sm:p-0">
+                <th scope="row" class="col-span-2 pb-2 font-medium sm:px-6 sm:py-4">{r.feature}</th>
+                <td class="flex items-center gap-2 text-sm sm:table-cell sm:px-4 sm:py-4 sm:text-center">
+                  <span class="text-muted-foreground sm:hidden">Nós:</span>
+                  <span class="inline-grid size-7 place-items-center rounded-full bg-positive-soft text-positive">
+                    <Icon name="check" size={16} />
+                    <span class="sr-only">Sim</span>
+                  </span>
+                </td>
+                <td class="flex items-center gap-2 text-sm text-muted-foreground sm:table-cell sm:px-4 sm:py-4 sm:text-center">
+                  <span class="sm:hidden">Outros:</span>
+                  {r.them === true ? (
+                    <span class="inline-grid size-7 place-items-center rounded-full bg-muted text-foreground">
+                      <Icon name="check" size={16} />
+                      <span class="sr-only">Sim</span>
+                    </span>
+                  ) : r.them === false ? (
+                    <span class="inline-grid size-7 place-items-center rounded-full bg-negative-soft text-negative">
+                      <Icon name="x" size={16} />
+                      <span class="sr-only">Não</span>
+                    </span>
+                  ) : (
+                    <span>{r.them}</span>
+                  )}
+                </td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+    <p class="mx-auto mt-4 max-w-4xl text-center text-xs text-muted-foreground">
+      Com base nos recursos divulgados publicamente por oito assistentes financeiros brasileiros.
+    </p>
+  </div>
+</section>

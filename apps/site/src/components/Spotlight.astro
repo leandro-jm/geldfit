@@ -1,0 +1,63 @@
+---
+import { Image } from 'astro:assets';
+import bolso from '../assets/screens/cabe-no-bolso.png';
+import painelDark from '../assets/screens/painel-mobile-dark.png';
+import painelLight from '../assets/screens/painel-mobile-light.png';
+import Icon from './Icon.astro';
+import ThemedShot from './ThemedShot.astro';
+
+const points = [
+  'À vista ou em 12x: o menor saldo dos próximos meses em cada cenário',
+  'Quanto a renda comprometida sobe com a nova parcela',
+  'Se vale parcelar e deixar o dinheiro rendendo no CDI',
+  '“Quanto posso gastar” até o fim do mês, sem furar o seu piso',
+];
+---
+
+<section class="relative overflow-hidden py-20 sm:py-28" aria-labelledby="bolso-title">
+  <div class="absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-primary-soft/60 to-transparent" aria-hidden="true"></div>
+  <div class="container-page grid items-center gap-14 lg:grid-cols-2">
+    <div>
+      <p class="text-sm font-semibold uppercase tracking-[0.14em] text-primary" data-reveal>Antes de parcelar</p>
+      <h2 id="bolso-title" class="mt-3 text-3xl font-bold tracking-tight text-balance sm:text-5xl sm:leading-[1.08]" data-reveal style="--d:1">
+        Pergunte: <span class="text-gradient">“cabe no bolso?”</span>
+      </h2>
+      <p class="mt-5 text-lg text-muted-foreground text-pretty" data-reveal style="--d:2">
+        “Posso comprar uma geladeira de 2.400 em 12x?” A resposta vem com números da sua projeção, não com uma regra genérica.
+      </p>
+      <ul class="mt-8 space-y-4">
+        {
+          points.map((p, i) => (
+            <li class="flex gap-3" data-reveal style={`--d:${i + 3}`}>
+              <span class="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-positive-soft text-positive">
+                <Icon name="check" size={14} />
+              </span>
+              <span>{p}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+
+    <div class="relative mx-auto flex w-full max-w-[520px] items-start justify-center gap-4 sm:gap-6">
+      <div class="phone w-[48%] max-w-[240px]" data-reveal="left" style="--d:1">
+        <ThemedShot
+          light={painelLight}
+          dark={painelDark}
+          alt="Painel no celular com patrimônio total e o quanto posso gastar nos próximos 24 meses"
+          widths={[260, 390, 520, 780]}
+          sizes="240px"
+        />
+      </div>
+      <div class="phone float-slow mt-16 w-[48%] max-w-[240px]" data-reveal="right" style="--d:3">
+        <Image
+          src={bolso}
+          alt="Resposta do assistente para compra parcelada com gráfico de renda comprometida antes e depois da compra"
+          widths={[260, 400]}
+          sizes="240px"
+          class="block h-auto w-full"
+        />
+      </div>
+    </div>
+  </div>
+</section>

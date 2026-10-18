@@ -1,0 +1,376 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+/* -------------------------------------------------------------------------------------------
+ * Tokens: os mesmos do app (apps/web/src/styles.css). O tema segue o sistema operacional.
+ * ----------------------------------------------------------------------------------------- */
+:root {
+  color-scheme: light dark;
+  --background: #f6f6f4;
+  --foreground: #111110;
+  --card: #ffffff;
+  --muted: #efeeea;
+  --muted-foreground: #5c5b57;
+  --subtle: #f3f2ef;
+  --border: #e3e2dc;
+  --primary: #2563c4;
+  --primary-strong: #1c4f9c;
+  --primary-foreground: #ffffff;
+  --primary-soft: #e6effb;
+  --primary-soft-foreground: #1c4f9c;
+  --positive: #0b7a3b;
+  --positive-soft: #e5f4ea;
+  --negative: #c0322f;
+  --negative-soft: #fbe9e8;
+  --warning: #8a5a00;
+  --warning-soft: #fdf1d6;
+  --glow-1: rgb(37 99 196 / 0.22);
+  --glow-2: rgb(27 175 122 / 0.16);
+  --glow-3: rgb(242 182 50 / 0.14);
+  --shadow-color: 30 20 10;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #111110;
+    --foreground: #f0efec;
+    --card: #1a1a19;
+    --muted: #262624;
+    --muted-foreground: #aeada6;
+    --subtle: #1d1d1c;
+    --border: #2e2e2c;
+    --primary: #5b9cea;
+    --primary-strong: #8bbaf2;
+    --primary-foreground: #08111f;
+    --primary-soft: #19283b;
+    --primary-soft-foreground: #a9c9f4;
+    --positive: #4cc27f;
+    --positive-soft: #15281c;
+    --negative: #ef6b67;
+    --negative-soft: #2f1716;
+    --warning: #e3b34f;
+    --warning-soft: #2c2210;
+    --glow-1: rgb(91 156 234 / 0.2);
+    --glow-2: rgb(76 194 127 / 0.1);
+    --glow-3: rgb(242 182 50 / 0.08);
+    --shadow-color: 0 0 0;
+  }
+}
+
+@theme inline {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle: var(--subtle);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-strong: var(--primary-strong);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-soft-foreground: var(--primary-soft-foreground);
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --radius-xl: 16px;
+  --radius-2xl: 22px;
+  --radius-3xl: 28px;
+  --shadow-soft: 0 1px 2px rgb(var(--shadow-color) / 0.05), 0 4px 16px -6px rgb(var(--shadow-color) / 0.08);
+  --shadow-pop: 0 2px 6px rgb(var(--shadow-color) / 0.06), 0 24px 60px -18px rgb(var(--shadow-color) / 0.28);
+}
+
+@layer base {
+  html {
+    overflow-x: clip;
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    overflow-x: clip;
+  }
+  ::selection {
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+  summary {
+    cursor: pointer;
+    list-style: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+}
+
+@layer components {
+  .container-page {
+    width: 100%;
+    max-width: 1200px;
+    margin-inline: auto;
+    padding-inline: 16px;
+  }
+  @media (min-width: 640px) {
+    .container-page {
+      padding-inline: 24px;
+    }
+  }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: color-mix(in oklab, var(--card) 80%, transparent);
+    padding: 0.35rem 0.85rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--primary-soft-foreground);
+    backdrop-filter: blur(8px);
+  }
+
+  .btn {
+    display: inline-flex;
+    min-height: 48px;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 999px;
+    padding: 0.75rem 1.4rem;
+    font-weight: 600;
+    font-size: 1rem;
+    transition:
+      transform 0.2s ease,
+      box-shadow 0.2s ease,
+      background-color 0.2s ease;
+  }
+  .btn-primary {
+    background: var(--primary);
+    color: var(--primary-foreground);
+    box-shadow: 0 8px 24px -8px color-mix(in oklab, var(--primary) 70%, transparent);
+  }
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 30px -10px color-mix(in oklab, var(--primary) 80%, transparent);
+  }
+  .btn-ghost {
+    border: 1px solid var(--border);
+    background: color-mix(in oklab, var(--card) 70%, transparent);
+    color: var(--foreground);
+    backdrop-filter: blur(8px);
+  }
+  .btn-ghost:hover {
+    background: var(--card);
+    transform: translateY(-1px);
+  }
+
+  .card {
+    border-radius: var(--radius-2xl);
+    border: 1px solid var(--border);
+    background: var(--card);
+    box-shadow: var(--shadow-soft);
+  }
+
+  /* Moldura de navegador e de celular para as telas do app */
+  .browser {
+    overflow: hidden;
+    border-radius: 18px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    box-shadow: var(--shadow-pop);
+  }
+  .browser-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    padding-inline: 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--subtle);
+  }
+  .browser-bar i {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--border);
+  }
+  .phone {
+    overflow: hidden;
+    border-radius: 38px;
+    border: 8px solid #0d0d0c;
+    background: #0d0d0c;
+    box-shadow: var(--shadow-pop);
+  }
+  .phone img {
+    border-radius: 30px;
+  }
+
+  .text-gradient {
+    background: linear-gradient(100deg, var(--primary) 10%, #1baf7a 55%, var(--primary) 100%);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Brilho de fundo do hero */
+  .aurora {
+    position: absolute;
+    inset: -20% -10% auto;
+    height: 120%;
+    pointer-events: none;
+    background:
+      radial-gradient(40% 50% at 20% 25%, var(--glow-1), transparent 70%),
+      radial-gradient(35% 45% at 80% 15%, var(--glow-2), transparent 70%),
+      radial-gradient(30% 40% at 60% 70%, var(--glow-3), transparent 70%);
+    filter: blur(20px);
+  }
+  .grid-bg {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(to right, color-mix(in oklab, var(--border) 60%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklab, var(--border) 60%, transparent) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 30%, transparent 75%);
+  }
+
+  /* Cards do bento com halo que segue o ponteiro */
+  .spot {
+    position: relative;
+    isolation: isolate;
+  }
+  .spot::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: radial-gradient(
+      420px circle at var(--mx, 50%) var(--my, 0%),
+      color-mix(in oklab, var(--primary) 12%, transparent),
+      transparent 60%
+    );
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .spot:hover::before {
+    opacity: 1;
+  }
+}
+
+/* -------------------------------------------------------------------------------------------
+ * Movimento: só com prefers-reduced-motion: no-preference e só transform/opacity.
+ * Sem JS, tudo aparece normalmente (a classe .js é colocada no <html> pelo script).
+ * ----------------------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: no-preference) {
+  .js [data-reveal] {
+    opacity: 0;
+    transform: translateY(24px);
+    transition:
+      opacity 0.7s cubic-bezier(0.2, 0.7, 0.2, 1),
+      transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+    transition-delay: calc(var(--d, 0) * 80ms);
+  }
+  .js [data-reveal='left'] {
+    transform: translateX(-28px);
+  }
+  .js [data-reveal='right'] {
+    transform: translateX(28px);
+  }
+  .js [data-reveal='zoom'] {
+    transform: scale(0.96) translateY(16px);
+  }
+  .js [data-reveal].is-in {
+    opacity: 1;
+    transform: none;
+  }
+
+  .aurora {
+    animation: aurora 18s ease-in-out infinite alternate;
+  }
+  .text-gradient {
+    animation: shine 8s linear infinite;
+  }
+  .float {
+    animation: float 7s ease-in-out infinite;
+  }
+  .float-slow {
+    animation: float 9s ease-in-out -3s infinite;
+  }
+  .tilt {
+    transform: perspective(1600px) rotateX(var(--rx, 6deg)) rotateY(var(--ry, -6deg));
+    transition: transform 0.4s ease;
+    will-change: transform;
+  }
+  .marquee-track {
+    animation: marquee 40s linear infinite;
+  }
+  .card-lift {
+    transition:
+      transform 0.3s ease,
+      box-shadow 0.3s ease;
+  }
+  .card-lift:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-pop);
+  }
+  .bar-grow {
+    transform-origin: bottom;
+  }
+  .js .bar-grow {
+    transform: scaleY(0);
+    transition: transform 1s cubic-bezier(0.2, 0.7, 0.2, 1);
+    transition-delay: calc(var(--d, 0) * 60ms + 200ms);
+  }
+  .js .is-in .bar-grow {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes aurora {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(3%, 2%, 0) scale(1.05);
+  }
+  100% {
+    transform: translate3d(-3%, -1%, 0) scale(1.02);
+  }
+}
+@keyframes shine {
+  to {
+    background-position: 200% center;
+  }
+}
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+@keyframes marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}

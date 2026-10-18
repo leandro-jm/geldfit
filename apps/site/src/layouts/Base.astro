@@ -1,0 +1,166 @@
+---
+import interLatin from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url';
+import '../styles/global.css';
+import { APP_URL, faq, site } from '../data/content';
+
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
+const ogImage = new URL('/og-image.png', Astro.site).href;
+const origin = new URL('/', Astro.site).href;
+
+const jsonLd = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: site.name,
+    description: site.description,
+    url: origin,
+    applicationCategory: 'FinanceApplication',
+    operatingSystem: 'Web, Android, iOS',
+    inLanguage: 'pt-BR',
+    image: ogImage,
+    offers: { '@type': 'Offer', price: '0', priceCurrency: 'BRL' },
+    featureList: [
+      'Projeção de saldo de 24 meses com parcelas e recorrências',
+      'Renda comprometida com parcelas',
+      'Importação de fatura, extrato e nota de corretagem com prévia e confirmação',
+      'Calendário de IPVA, IPTU, 13º salário e material escolar',
+      'Lançamentos e lembretes pelo WhatsApp',
+      'Previdência fechada',
+      'Conexão com Claude e ChatGPT via MCP',
+    ],
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: site.name,
+    url: origin,
+    logo: new URL('/favicon.svg', Astro.site).href,
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faq.map((f) => ({
+      '@type': 'Question',
+      name: f.q,
+      acceptedAnswer: { '@type': 'Answer', text: f.a },
+    })),
+  },
+];
+---
+
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{site.title}</title>
+    <meta name="description" content={site.description} />
+    <link rel="canonical" href={canonical} />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="sitemap" href="/sitemap-index.xml" />
+    <link rel="preload" href={interLatin} as="font" type="font/woff2" crossorigin />
+    <link rel="preconnect" href={APP_URL} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="pt_BR" />
+    <meta property="og:site_name" content={site.name} />
+    <meta property="og:title" content={site.title} />
+    <meta property="og:description" content={site.description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Saúde Financeira: tela de projeção de saldo para os próximos 24 meses" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={site.title} />
+    <meta name="twitter:description" content={site.description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <script is:inline>
+      document.documentElement.classList.add('js');
+    </script>
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+  </head>
+  <body class="min-h-dvh">
+    <a
+      href="#conteudo"
+      class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-full focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+      >Pular para o conteúdo</a
+    >
+    <slot />
+    <script>
+      // Revelar ao rolar, contadores, halo nos cards, inclinação dos mockups e header compacto.
+      const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      const io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (!e.isIntersecting) continue;
+            e.target.classList.add('is-in');
+            const el = e.target as HTMLElement;
+            if (el.dataset.count) countUp(el);
+            io.unobserve(el);
+          }
+        },
+        { rootMargin: '0px 0px -10% 0px', threshold: 0.12 },
+      );
+      document.querySelectorAll('[data-reveal], [data-count], [data-bars]').forEach((el) => io.observe(el));
+
+      function countUp(el: HTMLElement) {
+        const end = Number(el.dataset.count);
+        const out = el.querySelector('[data-count-value]') ?? el;
+        if (reduce) return void (out.textContent = String(end));
+        const t0 = performance.now();
+        const dur = 1400;
+        const tick = (t: number) => {
+          const p = Math.min(1, (t - t0) / dur);
+          out.textContent = String(Math.round(end * (1 - Math.pow(1 - p, 3))));
+          if (p < 1) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }
+
+      if (!reduce && matchMedia('(pointer: fine)').matches) {
+        document.querySelectorAll<HTMLElement>('.spot').forEach((card) => {
+          card.addEventListener('pointermove', (ev) => {
+            const r = card.getBoundingClientRect();
+            card.style.setProperty('--mx', `${ev.clientX - r.left}px`);
+            card.style.setProperty('--my', `${ev.clientY - r.top}px`);
+          });
+        });
+        document.querySelectorAll<HTMLElement>('[data-tilt]').forEach((wrap) => {
+          const target = wrap.querySelector<HTMLElement>('.tilt');
+          if (!target) return;
+          wrap.addEventListener('pointermove', (ev) => {
+            const r = wrap.getBoundingClientRect();
+            const x = (ev.clientX - r.left) / r.width - 0.5;
+            const y = (ev.clientY - r.top) / r.height - 0.5;
+            target.style.setProperty('--ry', `${x * 8 - 4}deg`);
+            target.style.setProperty('--rx', `${-y * 6 + 3}deg`);
+          });
+          wrap.addEventListener('pointerleave', () => {
+            target.style.removeProperty('--ry');
+            target.style.removeProperty('--rx');
+          });
+        });
+      }
+
+      const header = document.querySelector<HTMLElement>('[data-header]');
+      if (header) {
+        const onScroll = () => header.toggleAttribute('data-scrolled', scrollY > 12);
+        onScroll();
+        addEventListener('scroll', onScroll, { passive: true });
+      }
+
+      // Fecha o menu mobile ao escolher um link
+      document.querySelectorAll<HTMLAnchorElement>('[data-mobile-nav] a').forEach((a) =>
+        a.addEventListener('click', () => a.closest('details')?.removeAttribute('open')),
+      );
+    </script>
+  </body>
+</html>

@@ -1,0 +1,120 @@
+---
+import { MCP_URL, SIGNUP_URL } from '../data/content';
+import Icon from './Icon.astro';
+
+const steps = [
+  { t: 'Copie o endereço', d: 'Em Configurações → Assistentes externos, ou use o endereço abaixo.' },
+  { t: 'Adicione como conector', d: 'No Claude, ChatGPT ou outro cliente compatível com MCP, crie um conector personalizado.' },
+  { t: 'Entre e autorize', d: 'Faça login com a sua conta e escolha o espaço. Pronto: pergunte o que quiser.' },
+];
+const guarantees = [
+  'Somente leitura: nada é gravado por fora',
+  'Login com OAuth, sem senha no assistente',
+  'Revogue o acesso quando quiser',
+  'Mesmas regras: CVM 19 e dados mascarados',
+];
+---
+
+<section id="mcp" class="py-20 sm:py-28" aria-labelledby="mcp-title">
+  <div class="container-page">
+    <div
+      class="relative overflow-hidden rounded-[var(--radius-3xl)] bg-[#0f1420] px-6 py-14 text-white sm:px-12 lg:px-16"
+      data-reveal="zoom"
+    >
+      <div class="aurora opacity-70" aria-hidden="true"></div>
+      <div class="relative grid items-center gap-12 lg:grid-cols-2">
+        <div>
+          <p
+            class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-sm font-medium text-white/80"
+          >
+            <Icon name="sparkles" size={16} /> Conexão via MCP
+          </p>
+          <h2 id="mcp-title" class="mt-5 text-3xl font-bold tracking-tight text-balance sm:text-5xl sm:leading-[1.08]">
+            Suas finanças dentro do Claude e do ChatGPT
+          </h2>
+          <p class="mt-5 text-lg text-white/70 text-pretty">
+            Conecte o assistente que você já usa e pergunte sobre projeção, parcelas e calendário no meio de qualquer
+            conversa. As respostas vêm dos seus números, não de estimativas.
+          </p>
+
+          <ol class="mt-8 space-y-5">
+            {
+              steps.map((s, i) => (
+                <li class="flex gap-4">
+                  <span class="grid size-8 shrink-0 place-items-center rounded-full bg-white/10 text-sm font-bold">
+                    {i + 1}
+                  </span>
+                  <span>
+                    <span class="block font-semibold">{s.t}</span>
+                    <span class="text-white/65">{s.d}</span>
+                  </span>
+                </li>
+              ))
+            }
+          </ol>
+
+          <div class="mt-8 rounded-2xl border border-white/10 bg-black/30 p-4">
+            <p class="text-xs font-medium uppercase tracking-wider text-white/50">Endereço do servidor MCP</p>
+            <p class="mt-2 break-all font-mono text-sm text-[#8bbaf2]">{MCP_URL}</p>
+          </div>
+
+          <div class="mt-8 flex flex-col flex-wrap gap-3 sm:flex-row">
+            <a href={SIGNUP_URL} class="btn bg-white text-[#0f1420] hover:-translate-y-px">
+              Criar conta e conectar <Icon name="arrow" size={18} />
+            </a>
+          </div>
+        </div>
+
+        <div>
+          <div
+            class="overflow-hidden rounded-2xl border border-white/10 bg-[#171c28] text-[15px] shadow-2xl"
+            aria-label="Exemplo de conversa com um assistente conectado"
+            role="img"
+          >
+            <div class="flex items-center gap-2 border-b border-white/10 px-5 py-3 text-sm text-white/60" aria-hidden="true">
+              <span class="size-2 rounded-full bg-[#4cc27f]"></span> Seu assistente · conectado ao Saúde Financeira
+            </div>
+            <div class="space-y-4 p-5" aria-hidden="true">
+              <p class="ml-auto w-fit max-w-[85%] rounded-2xl rounded-tr-sm bg-white/10 px-4 py-2.5">
+                Vou trocar de carro em março. Quanto sobra até lá?
+              </p>
+              <div class="flex w-fit items-center gap-2 rounded-lg border border-white/10 px-3 py-1.5 font-mono text-xs text-white/55">
+                <Icon name="chart" size={14} /> saude_financeira · get_projection
+              </div>
+              <div class="max-w-[92%] space-y-2 text-white/85">
+                <p>
+                  Pela sua projeção, o saldo em março fica em <strong class="text-white">R$ 27.863</strong>. O mês mais
+                  apertado até lá é janeiro, por causa do IPVA (3× de R$ 780) e do IPTU.
+                </p>
+                <p>
+                  Hoje <strong class="text-white">8% da sua renda</strong> já está comprometida com parcelas. Um financiamento
+                  de R$ 1.200 por mês levaria isso para cerca de 22%, na faixa de atenção.
+                </p>
+              </div>
+              <div class="flex flex-wrap gap-2 pt-1">
+                {
+                  ['get_safe_to_spend', 'evaluate_purchase', 'get_income_commitment', 'get_calendar'].map((t) => (
+                    <span class="rounded-full border border-white/10 px-2.5 py-1 font-mono text-[11px] text-white/45">{t}</span>
+                  ))
+                }
+              </div>
+            </div>
+          </div>
+
+          <ul class="mt-6 grid gap-3 sm:grid-cols-2">
+            {
+              guarantees.map((g) => (
+                <li class="flex items-start gap-2 text-sm text-white/75">
+                  <span class="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-[#1baf7a]/20 text-[#4cc27f]">
+                    <Icon name="check" size={12} />
+                  </span>
+                  {g}
+                </li>
+              ))
+            }
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

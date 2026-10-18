@@ -1,0 +1,129 @@
+---
+import { Image } from 'astro:assets';
+import previa from '../assets/screens/previa-chat.png';
+import projDark from '../assets/screens/projecao-dark.png';
+import projLight from '../assets/screens/projecao-light.png';
+import { SIGNUP_URL, ticker } from '../data/content';
+import Icon from './Icon.astro';
+import ThemedShot from './ThemedShot.astro';
+---
+
+<section class="relative overflow-hidden pb-12 pt-28 sm:pt-32 lg:pb-20 lg:pt-36" aria-labelledby="hero-title">
+  <div class="aurora" aria-hidden="true"></div>
+  <div class="grid-bg" aria-hidden="true"></div>
+
+  <div class="container-page relative grid items-center gap-12 lg:grid-cols-[1.02fr_1fr] lg:gap-10">
+    <div class="max-w-xl">
+      <p class="eyebrow" data-reveal>
+        <span class="relative flex size-2">
+          <span class="absolute inline-flex size-full animate-ping rounded-full bg-positive opacity-60 motion-reduce:hidden"></span>
+          <span class="relative inline-flex size-2 rounded-full bg-positive"></span>
+        </span>
+        Planejamento financeiro por chat
+      </p>
+      <h1
+        id="hero-title"
+        class="mt-5 text-[2.5rem] font-extrabold leading-[1.04] tracking-[-0.035em] text-balance sm:text-6xl lg:text-[4rem]"
+        data-reveal
+        style="--d:1"
+      >
+        Saiba hoje quanto vai <span class="text-gradient">sobrar nos próximos 24&nbsp;meses</span>.
+      </h1>
+      <p class="mt-6 text-lg leading-relaxed text-muted-foreground text-pretty sm:text-xl" data-reveal style="--d:2">
+        Converse pelo WhatsApp ou pela web, mande a fatura em PDF ou uma foto, e veja parcelas, IPVA e 13º
+        entrarem na sua projeção. <strong class="font-semibold text-foreground">Nada é gravado sem a sua confirmação.</strong>
+      </p>
+      <div class="mt-8 flex flex-col gap-3 sm:flex-row" data-reveal style="--d:3">
+        <a href={SIGNUP_URL} class="btn btn-primary">
+          Criar conta grátis
+          <Icon name="arrow" size={18} />
+        </a>
+        <a href="#mcp" class="btn btn-ghost">
+          <Icon name="sparkles" size={18} />
+          Use no Claude e no ChatGPT
+        </a>
+      </div>
+      <ul class="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground" data-reveal style="--d:4">
+        <li class="inline-flex items-center gap-1.5"><Icon name="check" size={16} class="text-positive" /> Sem senha de banco</li>
+        <li class="inline-flex items-center gap-1.5"><Icon name="check" size={16} class="text-positive" /> Sem cartão de crédito</li>
+        <li class="inline-flex items-center gap-1.5"><Icon name="check" size={16} class="text-positive" /> Qualquer banco</li>
+      </ul>
+    </div>
+
+    <div class="relative mx-auto w-full max-w-[640px] lg:max-w-none" data-tilt>
+      <div class="tilt w-[90%]" data-reveal="zoom" style="--d:2">
+        <div class="browser">
+          <div class="browser-bar" aria-hidden="true">
+            <i></i><i></i><i></i>
+            <span class="ml-3 truncate rounded-md bg-card px-3 py-0.5 text-[11px] text-muted-foreground">app · Projeção</span>
+          </div>
+          <div class="aspect-square overflow-hidden">
+            <ThemedShot
+              light={projLight}
+              dark={projDark}
+              alt="Tela de projeção do Saúde Financeira: saldo em 24 meses, menor saldo e gráfico do saldo projetado com faixa otimista e pessimista"
+              widths={[480, 720, 960, 1280, 1760]}
+              sizes="(min-width: 1024px) 540px, (min-width: 640px) 580px, 84vw"
+              eager
+            />
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="phone float absolute -bottom-12 right-0 w-[34%] max-w-[200px] lg:-bottom-16 lg:-right-4"
+        data-reveal="right"
+        style="--d:4"
+      >
+        <Image
+          src={previa}
+          alt="Prévia de importação de extrato no chat, com cinco lançamentos e botões Confirmar, Editar e Cancelar"
+          widths={[200, 300, 400]}
+          sizes="210px"
+          loading="eager"
+          class="block h-auto w-full"
+        />
+      </div>
+
+      <div
+        class="card float-slow absolute -left-3 top-[30%] hidden items-center gap-3 px-4 py-3 sm:flex lg:-left-10"
+        data-reveal="left"
+        style="--d:5"
+      >
+        <span class="grid size-9 place-items-center rounded-xl bg-warning-soft text-warning"><Icon name="calendar" size={18} /></span>
+        <span class="text-sm leading-tight">
+          <span class="block font-semibold">IPVA em 45 dias</span>
+          <span class="text-muted-foreground">3× de R$ 780 · entrar na projeção?</span>
+        </span>
+      </div>
+
+      <div
+        class="card float absolute -top-7 right-2 hidden items-center gap-3 px-4 py-3 sm:flex"
+        data-reveal="left"
+        style="--d:6"
+      >
+        <span class="grid size-9 place-items-center rounded-xl bg-positive-soft text-positive"><Icon name="gauge" size={18} /></span>
+        <span class="text-sm leading-tight">
+          <span class="block font-semibold">8% da renda comprometida</span>
+          <span class="text-muted-foreground">tranquilo · abaixo de 20%</span>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div class="relative mt-20 overflow-hidden border-y border-border bg-card/60 py-4 backdrop-blur lg:mt-28" aria-label="O que entra na projeção">
+    <div class="marquee-track flex w-max gap-3">
+      {
+        [...ticker, ...ticker].map((t, i) => (
+          <span
+            class="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-border bg-background px-4 py-1.5 text-sm text-muted-foreground"
+            aria-hidden={i >= ticker.length ? 'true' : undefined}
+          >
+            <span class="size-1.5 rounded-full bg-primary" />
+            {t}
+          </span>
+        ))
+      }
+    </div>
+  </div>
+</section>

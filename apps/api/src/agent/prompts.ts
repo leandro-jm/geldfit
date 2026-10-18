@@ -92,7 +92,7 @@ export function dynamicContext(c: {
   userName: string;
   workspaceName: string;
   role: string;
-  channel: 'web' | 'whatsapp' | 'voice';
+  channel: 'web' | 'whatsapp' | 'mcp' | 'voice';
   accounts: Array<{ name: string; institution: string; type: string; currency?: string }>;
   cards: Array<{ name: string; closingDay: number; dueDay: number }>;
   categories: string[];

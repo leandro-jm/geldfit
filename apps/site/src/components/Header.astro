@@ -1,0 +1,67 @@
+---
+import { LOGIN_URL, nav, SIGNUP_URL } from '../data/content';
+import Icon from './Icon.astro';
+import Logo from './Logo.astro';
+---
+
+<header
+  data-header
+  class="group fixed inset-x-0 top-0 z-50 border-b border-transparent transition-[background-color,border-color,backdrop-filter] duration-300 data-[scrolled]:border-border data-[scrolled]:bg-background/80 data-[scrolled]:backdrop-blur-xl"
+>
+  <div class="container-page flex h-16 items-center justify-between gap-4 transition-[height] duration-300 group-data-[scrolled]:h-14">
+    <a href="/" class="rounded-lg text-[17px]" aria-label="Saúde Financeira, início">
+      <Logo />
+    </a>
+
+    <nav aria-label="Principal" class="hidden lg:block">
+      <ul class="flex items-center gap-1 text-[15px] text-muted-foreground">
+        {
+          nav.map((n) => (
+            <li>
+              <a href={n.href} class="rounded-full px-3 py-2 transition-colors hover:bg-muted hover:text-foreground">
+                {n.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+
+    <div class="flex items-center gap-2">
+      <a href={LOGIN_URL} class="hidden rounded-full px-4 py-2 text-[15px] font-medium hover:bg-muted sm:inline-flex">
+        Entrar
+      </a>
+      <a href={SIGNUP_URL} class="btn btn-primary !min-h-11 whitespace-nowrap !px-4 !py-2 text-[15px]"
+        ><span>Criar conta<span class="hidden sm:inline"> grátis</span></span></a
+      >
+
+      <details class="relative lg:hidden" data-mobile-nav>
+        <summary
+          class="grid size-11 place-items-center rounded-full border border-border bg-card"
+          aria-label="Abrir menu"
+        >
+          <Icon name="menu" />
+        </summary>
+        <nav
+          aria-label="Menu"
+          class="card absolute right-0 top-14 w-64 p-2 shadow-[var(--shadow-pop)]"
+        >
+          <ul class="flex flex-col text-[15px]">
+            {
+              nav.map((n) => (
+                <li>
+                  <a href={n.href} class="block rounded-xl px-4 py-3 hover:bg-muted">
+                    {n.label}
+                  </a>
+                </li>
+              ))
+            }
+            <li class="mt-1 border-t border-border pt-1">
+              <a href={LOGIN_URL} class="block rounded-xl px-4 py-3 font-medium hover:bg-muted">Entrar</a>
+            </li>
+          </ul>
+        </nav>
+      </details>
+    </div>
+  </div>
+</header>

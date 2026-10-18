@@ -11,7 +11,7 @@ import { Field, Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/switch';
 import { Logo } from '@/components/layout/shell-parts';
 
-function AuthFrame({
+export function AuthFrame({
   children,
   title,
   subtitle,
@@ -36,7 +36,7 @@ function AuthFrame({
   );
 }
 
-function GoogleButton() {
+function GoogleButton({ redirect }: { redirect?: string }) {
   const [busy, setBusy] = useState(false);
   return (
     <Button
@@ -49,7 +49,8 @@ function GoogleButton() {
         try {
           const r = await authClient.signIn.social({
             provider: 'google',
-            callbackURL: window.location.origin + '/',
+            // volta para onde a pessoa estava (ex.: autorização de um assistente via MCP)
+            callbackURL: window.location.origin + (redirect?.startsWith('/') ? redirect : '/'),
           });
           if (r.error) toast.error(r.error.message ?? 'Login com Google indisponível neste servidor.');
         } catch {
@@ -169,7 +170,7 @@ export function LoginPage({ mode, redirect }: { mode: 'login' | 'signup'; redire
       <div className="my-5 flex items-center gap-3 text-[12px] text-muted-foreground">
         <div className="h-px flex-1 bg-border" /> ou <div className="h-px flex-1 bg-border" />
       </div>
-      <GoogleButton />
+      <GoogleButton redirect={redirect} />
       <p className="mt-6 text-center text-sm text-muted-foreground">
         {signup ? (
           <>

@@ -1,0 +1,35 @@
+---
+import Basics from '../components/Basics.astro';
+import Comparison from '../components/Comparison.astro';
+import Differentiators from '../components/Differentiators.astro';
+import Faq from '../components/Faq.astro';
+import FinalCta from '../components/FinalCta.astro';
+import Footer from '../components/Footer.astro';
+import Header from '../components/Header.astro';
+import Hero from '../components/Hero.astro';
+import HowItWorks from '../components/HowItWorks.astro';
+import Mcp from '../components/Mcp.astro';
+import Personas from '../components/Personas.astro';
+import Problem from '../components/Problem.astro';
+import Spotlight from '../components/Spotlight.astro';
+import Base from '../layouts/Base.astro';
+---
+
+<Base>
+  <Header />
+  <main id="conteudo">
+    <!-- Ordem = prioridade: diferenciais no topo, o que é comum mais abaixo -->
+    <Hero />
+    <Differentiators />
+    <Spotlight />
+    <Mcp />
+    <Problem />
+    <HowItWorks />
+    <Comparison />
+    <Basics />
+    <Personas />
+    <Faq />
+    <FinalCta />
+  </main>
+  <Footer />
+</Base>

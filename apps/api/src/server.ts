@@ -22,6 +22,8 @@ import { lgpdRoutes } from './routes/lgpd.js';
 import { voiceRoutes } from './routes/voice.js';
 import { agentRoutes } from './routes/agent.js';
 import { adminRoutes } from './routes/admin.js';
+import { oauthRoutes } from './mcp/oauth.js';
+import { mcpRoutes } from './mcp/server.js';
 import { pgErrorCode } from '@sf/db';
 
 export async function buildServer(
@@ -42,19 +44,36 @@ export async function buildServer(
     contentSecurityPolicy: false,
     crossOriginResourcePolicy: { policy: 'same-site' },
   });
+  // Descoberta OAuth, token e MCP são chamados por clientes de outras origens (sem cookies)
+  const openCors = /^\/(?:\.well-known\/oauth-|api\/oauth\/(?:token|register|revoke)$|api\/mcp$)/;
   await server.register(cors, {
-    origin: [app.config.PUBLIC_WEB_URL],
-    credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    delegator: (req, cb) =>
+      openCors.test((req.url ?? '').split('?')[0]!)
+        ? cb(null, {
+            origin: '*',
+            credentials: false,
+            methods: ['GET', 'POST', 'OPTIONS'],
+            exposedHeaders: ['www-authenticate', 'mcp-session-id'],
+          })
+        : cb(null, {
+            origin: [app.config.PUBLIC_WEB_URL],
+            credentials: true,
+            methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+          }),
   });
   await server.register(cookie);
   await server.register(rateLimit, {
     max: 300,
     timeWindow: '1 minute',
-    // o limite roda antes da checagem de sessão: a chave é o cookie de sessão (hash), senão o IP
+    // o limite roda antes da checagem de sessão: a chave é o cookie de sessão (hash), o token
+    // Bearer (MCP) ou, sem nenhum dos dois, o IP
     keyGenerator: (req) => {
-      const token = /(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=([^;]+)/.exec(req.headers.cookie ?? '')?.[1];
-      return token ? `s:${createHash('sha256').update(token).digest('base64url').slice(0, 22)}` : `ip:${req.ip}`;
+      const token =
+        /(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=([^;]+)/.exec(req.headers.cookie ?? '')?.[1] ??
+        /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? '')?.[1];
+      return token
+        ? `s:${createHash('sha256').update(token).digest('base64url').slice(0, 22)}`
+        : `ip:${req.ip}`;
     },
   });
   await server.register(multipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } });
@@ -121,5 +140,7 @@ export async function buildServer(
   await voiceRoutes(server, app, guards);
   await agentRoutes(server, app, guards);
   await adminRoutes(server, app, guards);
+  await oauthRoutes(server, app, guards);
+  await mcpRoutes(server, app);
   return { server, notifier };
 }

@@ -4,6 +4,7 @@
 #   lidas tanto pela interpolação ${...} quanto pelo env_file dos serviços.
 # - Nenhuma porta é publicada: o domínio é configurado na aba "Domains" apontando para o
 #   serviço "web", porta 80 (o nginx do web serve a SPA e faz proxy de /api).
+# - Landing page (opcional): serviço "site", porta 80, com SITE_URL no Environment.
 # - WhatsApp é opcional: defina COMPOSE_PROFILES=whatsapp no Environment para subir Evolution + Redis.
 # - Dados persistentes ficam em volumes nomeados (pgdata, files, evolution_instances).
 
@@ -85,6 +86,18 @@ services:
     restart: unless-stopped
     depends_on:
       api: { condition: service_healthy }
+    expose:
+      - '80'
+
+  # Landing page estática. As URLs entram no build (HTML pronto para buscadores): mudou, faça redeploy.
+  site:
+    build:
+      context: .
+      dockerfile: apps/site/Dockerfile
+      args:
+        SITE_URL: ${SITE_URL:-${APP_URL}}
+        PUBLIC_APP_URL: ${PUBLIC_APP_URL:-${APP_URL}}
+    restart: unless-stopped
     expose:
       - '80'
 

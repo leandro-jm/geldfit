@@ -22,10 +22,10 @@ export interface AppContext {
   log: Logger;
 }
 
-/** Contexto autenticado de uma operação (vindo da sessão web ou do número verificado no WhatsApp). */
+/** Contexto autenticado de uma operação (sessão web, número verificado no WhatsApp ou token MCP). */
 export interface Actor {
   userId: string;
   workspaceId: string;
   role: 'owner' | 'member' | 'viewer';
-  channel: 'web' | 'whatsapp';
+  channel: 'web' | 'whatsapp' | 'mcp';
 }

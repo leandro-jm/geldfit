@@ -27,6 +27,7 @@ import { PageHeader } from '@/components/common/states';
 import { AccountSection } from './settings-account';
 import { AppSection } from './settings-app';
 import { AiSettingsSection } from './settings-ai';
+import { McpSection } from './settings-mcp';
 
 const ROLE_LABEL = { owner: 'Dono', member: 'Membro', viewer: 'Leitura' } as const;
 
@@ -798,6 +799,7 @@ const TOC = [
   ['workspace', 'Workspace'],
   ['membros', 'Membros'],
   ['whatsapp', 'WhatsApp'],
+  ['mcp', 'Assistentes externos'],
   ['app', 'App e notificações'],
   ['lembretes', 'Lembretes'],
   ['projecao', 'Projeção'],
@@ -831,6 +833,7 @@ export function SettingsPage() {
           <WorkspaceSection />
           <MembersSection />
           <WhatsAppSection />
+          <McpSection />
           <AppSection />
           <PreferencesSections />
           {isAdmin ? <AiSettingsSection /> : null}

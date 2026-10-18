@@ -1,0 +1,63 @@
+---
+import ArrowRight from '@lucide/astro/icons/arrow-right';
+import BellRing from '@lucide/astro/icons/bell-ring';
+import CalendarCheck from '@lucide/astro/icons/calendar-check';
+import CalendarDays from '@lucide/astro/icons/calendar-days';
+import ChartSpline from '@lucide/astro/icons/chart-spline';
+import Check from '@lucide/astro/icons/check';
+import ChevronDown from '@lucide/astro/icons/chevron-down';
+import EyeOff from '@lucide/astro/icons/eye-off';
+import FileText from '@lucide/astro/icons/file-text';
+import Gauge from '@lucide/astro/icons/gauge';
+import Lock from '@lucide/astro/icons/lock';
+import Menu from '@lucide/astro/icons/menu';
+import MessageCircle from '@lucide/astro/icons/message-circle';
+import Mic from '@lucide/astro/icons/mic';
+import Minus from '@lucide/astro/icons/minus';
+import PiggyBank from '@lucide/astro/icons/piggy-bank';
+import Server from '@lucide/astro/icons/server';
+import ShieldCheck from '@lucide/astro/icons/shield-check';
+import Smartphone from '@lucide/astro/icons/smartphone';
+import Sparkles from '@lucide/astro/icons/sparkles';
+import Target from '@lucide/astro/icons/target';
+import Terminal from '@lucide/astro/icons/terminal';
+import Users from '@lucide/astro/icons/users';
+import X from '@lucide/astro/icons/x';
+
+const icons = {
+  arrow: ArrowRight,
+  bell: BellRing,
+  'calendar-check': CalendarCheck,
+  calendar: CalendarDays,
+  chart: ChartSpline,
+  check: Check,
+  chevron: ChevronDown,
+  'eye-off': EyeOff,
+  file: FileText,
+  gauge: Gauge,
+  lock: Lock,
+  menu: Menu,
+  message: MessageCircle,
+  mic: Mic,
+  minus: Minus,
+  piggy: PiggyBank,
+  server: Server,
+  'shield-check': ShieldCheck,
+  smartphone: Smartphone,
+  sparkles: Sparkles,
+  target: Target,
+  terminal: Terminal,
+  users: Users,
+  x: X,
+} as const;
+
+interface Props {
+  name: keyof typeof icons | (string & {});
+  size?: number;
+  class?: string;
+}
+const { name, size = 20, class: className } = Astro.props;
+const Cmp = icons[name as keyof typeof icons] ?? Sparkles;
+---
+
+<Cmp size={size} class={className} aria-hidden="true" stroke-width={1.9} />

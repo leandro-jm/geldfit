@@ -117,6 +117,41 @@ EVOLUTION_API_KEY=... EVOLUTION_WEBHOOK_SECRET=... pnpm whatsapp:setup
 
 O webhook aponta para `http://api:4100` porque quem chama é o container da Evolution, na mesma rede da API. O painel da Evolution fica protegido só pela `EVOLUTION_API_KEY`; depois de parear, você pode remover esse domínio.
 
+### Landing page
+
+A landing pública ([apps/site](apps/site)) é HTML estático feito com Astro, com SEO, sitemap e imagens otimizadas. Ela sobe no mesmo deploy, no serviço `site`.
+
+1. **DNS:** crie o registro A do domínio da landing (ex.: `seudominio.com` e `www`) apontando para o servidor.
+2. **Environment:** adicione `SITE_URL=https://seudominio.com`.
+   - `PUBLIC_APP_URL` é opcional e, vazia, usa `APP_URL`. É o destino de "Criar conta" e "Entrar".
+   - As URLs entram no build, então, ao mudar alguma, faça um redeploy.
+3. **Domains:** adicione o domínio com _Service_ `site`, _Container Port_ `80` e HTTPS.
+4. **Deploy.** A landing não usa banco, volume nem migration.
+
+O app continua no domínio de `APP_URL`. Para a landing ficar no domínio raiz, o app precisa estar num subdomínio (ex.: `app.seudominio.com`). Se hoje o app já está na raiz, a troca exige:
+
+- mudar `APP_URL`;
+- atualizar o callback do Google OAuth;
+- reinstalar o PWA nos celulares.
+
+**Desenvolvimento local:** `pnpm dev:site` sobe a landing em http://localhost:4400.
+
+**Capturas do app:** as telas usadas na landing vêm de um usuário sintético, nunca de dados reais. Para regerar:
+
+1. Com `pnpm dev` rodando, dentro de `apps/web`, rode `npx playwright test --config ../site/scripts/capture/playwright.config.ts`.
+2. Depois, rode `pnpm --filter @sf/site shots` para recortar as telas e gerar a `og-image.png`.
+
+### Assistentes externos (MCP)
+
+O app expõe um servidor MCP em `${APP_URL}/api/mcp` (Streamable HTTP, sem sessão) para conectar o Claude, o ChatGPT e outros clientes compatíveis. O acesso é **somente leitura**: são as ferramentas `read` do agente, sem `parse_attachment`, `remember` e `forget`. Elas rodam pelo mesmo `runTool`, com RLS.
+
+- **Autenticação:** é um OAuth 2.1 próprio ([apps/api/src/mcp/oauth.ts](apps/api/src/mcp/oauth.ts)).
+  - Descoberta em `/.well-known/oauth-protected-resource` e `/.well-known/oauth-authorization-server`.
+  - Registro dinâmico de cliente, PKCE S256 obrigatório e refresh com rotação.
+  - Só os hashes dos tokens ficam no banco (migration `mcp_oauth`).
+- **Consentimento:** na tela `/oauth/autorizar` da web, a pessoa escolhe o espaço. As conexões aparecem e podem ser revogadas em Configurações → Assistentes externos.
+- **Proxy:** o nginx da web e o proxy do Vite encaminham `/.well-known/oauth-*` para a API. Não há variável nova.
+
 ## LGPD
 
 - Consentimento explícito no primeiro acesso (termos, privacidade e processamento por LLM).

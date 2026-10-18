@@ -407,6 +407,41 @@ export interface LlmUsage {
   workspaceId: string | null;
 }
 
+export interface McpAuthCodes {
+  clientId: string;
+  codeChallenge: string;
+  codeHash: string;
+  createdAt: Generated<Timestamp>;
+  expiresAt: Timestamp;
+  redirectUri: string;
+  scope: string;
+  userId: string;
+  workspaceId: string;
+}
+
+export interface McpClients {
+  clientName: string;
+  createdAt: Generated<Timestamp>;
+  id: string;
+  lastUsedAt: Timestamp | null;
+  redirectUris: string[];
+}
+
+export interface McpGrants {
+  accessExpiresAt: Timestamp;
+  accessHash: string;
+  clientId: string;
+  createdAt: Generated<Timestamp>;
+  id: Generated<string>;
+  lastUsedAt: Timestamp | null;
+  refreshExpiresAt: Timestamp;
+  refreshHash: string;
+  revokedAt: Timestamp | null;
+  scope: string;
+  userId: string;
+  workspaceId: string;
+}
+
 export interface Memberships {
   createdAt: Generated<Timestamp>;
   role: string;
@@ -703,6 +738,9 @@ export interface DB {
   insights: Insights;
   invites: Invites;
   llmUsage: LlmUsage;
+  mcpAuthCodes: McpAuthCodes;
+  mcpClients: McpClients;
+  mcpGrants: McpGrants;
   memberships: Memberships;
   messages: Messages;
   pensionEntries: PensionEntries;

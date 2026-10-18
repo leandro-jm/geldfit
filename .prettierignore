@@ -2,3 +2,4 @@ pnpm-lock.yaml
 db/migrations
 docs
 packages/db/src/generated.ts
+apps/site/.astro

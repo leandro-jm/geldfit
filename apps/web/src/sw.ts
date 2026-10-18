@@ -14,7 +14,11 @@ cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
 
 // SPA: toda navegação cai no index.html, menos /api.
-registerRoute(new NavigationRoute(createHandlerBoundToURL('/index.html'), { denylist: [/^\/api\//] }));
+registerRoute(
+  new NavigationRoute(createHandlerBoundToURL('/index.html'), {
+    denylist: [/^\/api\//, /^\/\.well-known\//],
+  }),
+);
 
 // Push -----------------------------------------------------------------------
 interface PushPayload {
