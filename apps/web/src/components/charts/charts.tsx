@@ -1,13 +1,18 @@
 import { useMemo } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
 import {
+  commitmentLevel,
   formatBRL,
+  formatPct,
   monthLabel,
   MONTHS_SHORT,
   parseISO,
+  type ChatVisual,
+  type CommitmentItem,
   type MonthlyFlow,
   type PortfolioDTO,
   type ProjectionDTO,
+  type RetirementYearPoint,
 } from '@sf/shared';
 import { useBreakpoint } from '@/lib/media';
 import {
@@ -15,6 +20,7 @@ import {
   categoryAxis,
   EChart,
   moneyAxis,
+  percentAxis,
   tooltipRow,
   tooltipTitle,
   useChartTheme,
@@ -137,6 +143,157 @@ export function ProjectionChart({
         if (m) onSelectMonth?.(m.month);
       }}
     />
+  );
+}
+
+export type CommitmentPoint = ChatVisual['months'][number] & { items?: CommitmentItem[] };
+
+export const COMMITMENT_LEVEL_LABEL = { ok: 'até 20%', atencao: '20% a 30%', alto: 'acima de 30%' } as const;
+
+/**
+ * Renda comprometida por mês (fração da renda recorrente). Sozinho, a cor da barra é o nível
+ * (sempre com legenda); na comparação de compra, empilha o já comprometido e o que a compra soma.
+ */
+export function CommitmentChart({
+  data,
+  threshold,
+  height = 220,
+  compact = false,
+}: {
+  data: CommitmentPoint[];
+  threshold: number;
+  height?: number;
+  compact?: boolean;
+}) {
+  const t = useChartTheme();
+  const narrow = useBreakpoint() === 'phone' || compact;
+  const compare = data.some((d) => d.addedCents !== undefined);
+  const option = useMemo<EChartsCoreOption>(() => {
+    const labels = data.map((d) => shortMonth(d.month));
+    const frac = (cents: number, d: CommitmentPoint) => (d.incomeCents > 0 ? cents / d.incomeCents : null);
+    const levelColor = (pct: number | null) => {
+      const l = commitmentLevel(pct);
+      return l === 'alto' ? t.negative : l === 'atencao' ? t.warning : t.series[0]!;
+    };
+    const top = Math.max(threshold * 1.25, ...data.map((d) => d.pct ?? 0));
+    const max = Math.ceil(top * 10) / 10;
+    const radius = [4, 4, 0, 0];
+    const esc = (x: string) => x.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+    const pctRow = (color: string, label: string, pct: number) =>
+      `<div style="display:flex;align-items:center;gap:8px;margin-top:3px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${color}"></span><b style="font-variant-numeric:tabular-nums">${formatPct(pct)}</b><span style="opacity:.75">${esc(label)}</span></div>`;
+    const thresholdLine = {
+      silent: true,
+      symbol: 'none',
+      lineStyle: { color: t.label, type: 'dashed', width: 1 },
+      label: {
+        color: t.label,
+        fontSize: 10,
+        position: 'insideEndTop',
+        formatter: `referência ${formatPct(threshold)}`,
+      },
+      data: [{ yAxis: threshold }],
+    };
+    const series = compare
+      ? [
+          {
+            name: 'Já comprometido',
+            type: 'bar',
+            stack: 'c',
+            barMaxWidth: compact ? 12 : 18,
+            data: data.map((d) => frac(d.committedCents - (d.addedCents ?? 0), d)),
+            itemStyle: { color: t.series[0] },
+            markLine: thresholdLine,
+          },
+          {
+            name: 'Esta compra',
+            type: 'bar',
+            stack: 'c',
+            data: data.map((d) => frac(d.addedCents ?? 0, d)),
+            itemStyle: { color: t.series[1], borderRadius: radius, borderColor: t.surface, borderWidth: 1 },
+          },
+        ]
+      : [
+          {
+            name: 'Comprometido',
+            type: 'bar',
+            barMaxWidth: compact ? 12 : 18,
+            data: data.map((d) => ({
+              value: d.pct,
+              itemStyle: { color: levelColor(d.pct), borderRadius: radius },
+            })),
+            markLine: thresholdLine,
+          },
+        ];
+    return {
+      ...baseOption(t, narrow),
+      grid: { left: 4, right: narrow ? 4 : 12, top: 18, bottom: 4, containLabel: true },
+      legend: { show: false },
+      tooltip: {
+        ...(baseOption(t, narrow).tooltip as object),
+        axisPointer: { type: 'shadow', shadowStyle: { color: t.grid, opacity: 0.5 } },
+        formatter: (ps: Array<{ dataIndex: number }>) => {
+          const d = data[ps[0]?.dataIndex ?? 0];
+          if (!d) return '';
+          let html = tooltipTitle(monthLabel(d.month, true));
+          if (d.pct === null) return `${html}<div style="opacity:.75">Sem renda recorrente prevista</div>`;
+          const added = d.addedCents ?? 0;
+          html += compare
+            ? pctRow(t.series[0]!, 'antes', (d.committedCents - added) / d.incomeCents) +
+              pctRow(t.series[1]!, 'com a compra', d.pct)
+            : pctRow(levelColor(d.pct), 'da renda', d.pct);
+          html +=
+            tooltipRow(t.label, 'em parcelas', d.committedCents) +
+            tooltipRow(t.label, 'renda recorrente', d.incomeCents);
+          for (const it of d.items?.slice(0, 3) ?? [])
+            html += `<div style="opacity:.75;margin-top:2px">${esc(it.label)}${it.n && it.total ? ` ${it.n}/${it.total}` : ''}: ${esc(formatBRL(it.cents))}${it.endsThisMonth ? ' (última)' : ''}</div>`;
+          return html;
+        },
+      },
+      xAxis: categoryAxis(t, labels, {
+        axisLabel: {
+          color: t.label,
+          fontSize: 11,
+          hideOverlap: true,
+          interval: narrow && data.length > 8 ? 1 : 0,
+        },
+      }),
+      yAxis: percentAxis(t, max),
+      series,
+    };
+  }, [data, threshold, t, narrow, compare, compact]);
+  const peak = data.reduce<CommitmentPoint | null>(
+    (a, d) => (d.pct !== null && (!a || d.pct > a.pct!) ? d : a),
+    null,
+  );
+  return (
+    <EChart
+      option={option}
+      height={height}
+      ariaLabel={`Renda comprometida com parcelas por mês${peak ? `; pico de ${formatPct(peak.pct!)} em ${monthLabel(peak.month, true)}` : ''}.`}
+    />
+  );
+}
+
+/** Legenda do gráfico de renda comprometida (identidade nunca só pela cor). */
+export function CommitmentLegend({ compare }: { compare: boolean }) {
+  const items = compare
+    ? [
+        ['var(--chart-1)', 'Já comprometido'],
+        ['var(--chart-2)', 'Esta compra'],
+      ]
+    : [
+        ['var(--chart-1)', COMMITMENT_LEVEL_LABEL.ok],
+        ['var(--warning)', COMMITMENT_LEVEL_LABEL.atencao],
+        ['var(--negative)', COMMITMENT_LEVEL_LABEL.alto],
+      ];
+  return (
+    <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted-foreground" aria-label="Legenda">
+      {items.map(([color, label]) => (
+        <li key={label} className="flex items-center gap-1.5">
+          <span className="size-2.5 rounded-sm" style={{ background: color }} aria-hidden /> {label}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -373,4 +530,106 @@ export function PensionChart({
     };
   }, [entries, t, narrow]);
   return <EChart option={option} height={height} ariaLabel="Saldo mensal da previdência." />;
+}
+
+/**
+ * Aposentadoria ano a ano: saldo acumulando até a data, depois sendo consumido até a idade final,
+ * com os aportes acumulados (tracejado) e uma linha no ano da aposentadoria.
+ */
+export function RetirementChart({
+  yearly,
+  retireYear,
+  height = 260,
+}: {
+  yearly: RetirementYearPoint[];
+  retireYear: number;
+  height?: number;
+}) {
+  const t = useChartTheme();
+  const narrow = useBreakpoint() === 'phone';
+  const option = useMemo<EChartsCoreOption>(() => {
+    const acc = t.series[6]!;
+    const wd = t.series[0]!;
+    const contrib = t.series[2]!;
+    const labels = yearly.map((p) => String(p.year));
+    // a curva de retirada começa no último ponto da acumulação para as duas se encontrarem
+    const isWd = (i: number) => yearly[i]!.phase === 'withdrawal' || yearly[i + 1]?.phase === 'withdrawal';
+    return {
+      ...baseOption(t, narrow),
+      grid: { left: 8, right: narrow ? 8 : 16, top: 36, bottom: 8, containLabel: true },
+      legend: {
+        top: 0,
+        left: 0,
+        icon: 'roundRect',
+        itemWidth: 10,
+        itemHeight: 10,
+        textStyle: { color: t.label, fontSize: 11 },
+      },
+      tooltip: {
+        ...(baseOption(t, narrow).tooltip as object),
+        formatter: (ps: Array<{ dataIndex: number }>) => {
+          const p = yearly[ps[0]?.dataIndex ?? 0];
+          if (!p) return '';
+          return (
+            tooltipTitle(`${p.year} · ${p.age} anos`) +
+            tooltipRow(p.phase === 'accumulation' ? acc : wd, 'Saldo', p.balanceCents) +
+            tooltipRow(contrib, 'Aportes acumulados', p.contributedCents, true) +
+            (p.withdrawnCents ? tooltipRow(wd, 'Recebido até aqui', p.withdrawnCents, true) : '')
+          );
+        },
+      },
+      xAxis: categoryAxis(t, labels, { boundaryGap: false }),
+      yAxis: moneyAxis(t),
+      series: [
+        {
+          name: 'Acumulação',
+          type: 'line',
+          data: yearly.map((p) => (p.phase === 'accumulation' ? p.balanceCents : null)),
+          showSymbol: false,
+          lineStyle: { width: 2, color: acc },
+          itemStyle: { color: acc },
+          areaStyle: { color: acc, opacity: 0.12 },
+          markLine: labels.includes(String(retireYear))
+            ? {
+                silent: true,
+                symbol: 'none',
+                lineStyle: { color: t.axis, width: 1.5, type: [6, 4] },
+                label: {
+                  show: !narrow,
+                  position: 'insideEndTop',
+                  color: t.label,
+                  fontSize: 11,
+                  formatter: 'Aposentadoria',
+                },
+                data: [{ xAxis: String(retireYear) }],
+              }
+            : undefined,
+        },
+        {
+          name: 'Retirada',
+          type: 'line',
+          data: yearly.map((p, i) => (isWd(i) ? p.balanceCents : null)),
+          showSymbol: false,
+          lineStyle: { width: 2, color: wd },
+          itemStyle: { color: wd },
+          areaStyle: { color: wd, opacity: 0.12 },
+        },
+        {
+          name: 'Aportes acumulados',
+          type: 'line',
+          data: yearly.map((p) => p.contributedCents),
+          showSymbol: false,
+          lineStyle: { width: 1.5, color: contrib, type: [4, 4] },
+          itemStyle: { color: contrib },
+        },
+      ],
+    };
+  }, [yearly, retireYear, t, narrow]);
+  return (
+    <EChart
+      option={option}
+      height={height}
+      ariaLabel="Saldo projetado da previdência na acumulação e na retirada, ano a ano."
+    />
+  );
 }

@@ -18,12 +18,14 @@ const DOMAIN_TABLES = [
   'drafts',
   'audit_log',
   'reminder_prefs',
+  'retirement_profiles',
   'reminders',
   'projection_snapshots',
   'categorization_rules',
   'budgets',
   'goals',
   'planned_cashflows',
+  'seasonal_items',
   'llm_usage',
   'trades',
   'allocation_targets',
@@ -32,6 +34,10 @@ const DOMAIN_TABLES = [
   'workspace_settings',
   'memberships',
   'invites',
+  'agent_memories',
+  'user_financial_profiles',
+  'agent_nudges',
+  'agent_nudge_mutes',
 ] as const;
 
 describe.skipIf(!hasDb)('RLS: isolamento entre tenants', () => {
@@ -127,6 +133,14 @@ describe.skipIf(!hasDb)('RLS: isolamento entre tenants', () => {
       .values({ workspaceId: wsA, userId: alice, kind: 'weekly_summary' })
       .execute();
     await o
+      .insertInto('retirementProfiles')
+      .values({ workspaceId: wsA, userId: alice, birthDate: '1985-03-15' })
+      .execute();
+    await o
+      .insertInto('seasonalItems')
+      .values({ workspaceId: wsA, key: 'ipva', label: 'IPVA', kind: 'expense', direction: 'out' })
+      .execute();
+    await o
       .insertInto('reminders')
       .values({
         workspaceId: wsA,
@@ -201,7 +215,107 @@ describe.skipIf(!hasDb)('RLS: isolamento entre tenants', () => {
         expiresAt: new Date(Date.now() + 86_400_000),
       })
       .execute();
+    await o
+      .insertInto('agentMemories')
+      .values([
+        {
+          workspaceId: wsA,
+          userId: alice,
+          category: 'objetivo',
+          key: 'objetivo.carro',
+          content: 'Quer trocar de carro',
+        },
+        {
+          workspaceId: wsA,
+          userId: alice,
+          category: 'familia',
+          key: 'familia.filho',
+          content: 'Filho nasce em março',
+          scope: 'household',
+        },
+        {
+          workspaceId: wsA,
+          userId: alice,
+          category: 'perfil',
+          key: 'perfil.saude',
+          content: 'Sensível pendente',
+          scope: 'household',
+          status: 'pending',
+          sensitive: true,
+        },
+      ])
+      .execute();
+    await o
+      .insertInto('userFinancialProfiles')
+      .values({ workspaceId: wsA, userId: alice, dependents: 1 })
+      .execute();
+    await o
+      .insertInto('agentNudges')
+      .values({
+        workspaceId: wsA,
+        userId: alice,
+        kind: 'goal_behind',
+        type: 'nudge',
+        category: 'meta',
+        fingerprint: 'f',
+        title: 't',
+        message: 'm',
+      })
+      .execute();
+    await o
+      .insertInto('agentNudgeMutes')
+      .values({ workspaceId: wsA, userId: alice, kind: 'profile_gap' })
+      .execute();
     void att;
+  });
+
+  it('sugestões do assistente: só o próprio usuário vê e altera', async () => {
+    const n = (u: string) =>
+      env.as(
+        u,
+        async (tx) =>
+          (await tx.selectFrom('agentNudges').select('id').where('workspaceId', '=', wsA).execute()).length,
+      );
+    expect(await n(alice)).toBe(1);
+    expect(await n(carol)).toBe(0);
+    const upd = await env.as(carol, (tx) =>
+      tx
+        .updateTable('agentNudges')
+        .set({ status: 'dismissed' })
+        .where('workspaceId', '=', wsA)
+        .executeTakeFirst(),
+    );
+    expect(Number(upd.numUpdatedRows)).toBe(0);
+    await expect(
+      env.as(carol, (tx) =>
+        tx.insertInto('agentNudgeMutes').values({ workspaceId: wsA, userId: alice, kind: 'x_y_z' }).execute(),
+      ),
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it('inscrições de push: só o próprio usuário vê e apaga', async () => {
+    const endpoint = `https://push.example.test/rls-${Date.now()}`;
+    await env.as(alice, (tx) => sql`select claim_push_subscription(${endpoint}, 'p', 'a', null)`.execute(tx));
+    const n = (u: string) =>
+      env.as(u, async (tx) => (await tx.selectFrom('pushSubscriptions').select('id').execute()).length);
+    expect(await n(alice)).toBe(1);
+    expect(await n(carol)).toBe(0);
+    const del = await env.as(carol, (tx) =>
+      tx.deleteFrom('pushSubscriptions').where('endpoint', '=', endpoint).executeTakeFirst(),
+    );
+    expect(Number(del.numDeletedRows)).toBe(0);
+    await expect(
+      env.as(carol, (tx) =>
+        tx
+          .insertInto('pushSubscriptions')
+          .values({ userId: alice, endpoint: `${endpoint}-x`, p256dh: 'p', auth: 'a' })
+          .execute(),
+      ),
+    ).rejects.toThrow(/row-level security/);
+    expect(
+      (await sql<{ n: number }>`select count(*)::int as n from push_subscriptions`.execute(env.app.db))
+        .rows[0]!.n,
+    ).toBe(0);
   });
 
   afterAll(async () => {
@@ -252,6 +366,82 @@ describe.skipIf(!hasDb)('RLS: isolamento entre tenants', () => {
     await expect(
       env.as(victor, (tx) =>
         insertTx(tx, wsA, { accountId: accA, date: '2026-10-11', amountCents: 1, direction: 'out' }),
+      ),
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it('memória do agente: pessoal só para o dono, compartilhada ativa para o workspace; ninguém altera a alheia', async () => {
+    const seen = (u: string) =>
+      env.as(u, (tx) =>
+        tx.selectFrom('agentMemories').select('key').where('workspaceId', '=', wsA).orderBy('key').execute(),
+      );
+    expect((await seen(alice)).map((r) => r.key)).toEqual([
+      'familia.filho',
+      'objetivo.carro',
+      'perfil.saude',
+    ]);
+    expect((await seen(carol)).map((r) => r.key)).toEqual(['familia.filho']);
+    expect((await seen(victor)).map((r) => r.key)).toEqual(['familia.filho']);
+    const upd = await env.as(carol, (tx) =>
+      tx.updateTable('agentMemories').set({ content: 'x' }).where('workspaceId', '=', wsA).executeTakeFirst(),
+    );
+    expect(Number(upd.numUpdatedRows)).toBe(0);
+    await expect(
+      env.as(carol, (tx) =>
+        tx
+          .insertInto('agentMemories')
+          .values({ workspaceId: wsA, userId: alice, category: 'contexto', key: 'contexto.x', content: 'xx' })
+          .execute(),
+      ),
+    ).rejects.toThrow(/row-level security/);
+    // leitor tem memória e perfil próprios
+    await env.as(victor, (tx) =>
+      tx
+        .insertInto('agentMemories')
+        .values({
+          workspaceId: wsA,
+          userId: victor,
+          category: 'contexto',
+          key: 'contexto.v',
+          content: 'Leitor',
+        })
+        .execute(),
+    );
+    const prof = await env.as(carol, (tx) =>
+      tx.selectFrom('userFinancialProfiles').select('userId').where('workspaceId', '=', wsA).execute(),
+    );
+    expect(prof).toHaveLength(0);
+  });
+
+  it('perfil de aposentadoria: só o próprio usuário lê e grava; leitor não grava o seu', async () => {
+    const carolSees = await env.as(
+      carol,
+      async (tx) =>
+        (await tx.selectFrom('retirementProfiles').select('userId').where('workspaceId', '=', wsA).execute())
+          .length,
+    );
+    expect(carolSees).toBe(0);
+    const aliceSees = await env.as(
+      alice,
+      async (tx) =>
+        (await tx.selectFrom('retirementProfiles').select('userId').where('workspaceId', '=', wsA).execute())
+          .length,
+    );
+    expect(aliceSees).toBe(1);
+    await expect(
+      env.as(carol, (tx) =>
+        tx
+          .insertInto('retirementProfiles')
+          .values({ workspaceId: wsA, userId: alice, birthDate: '1990-01-01' })
+          .execute(),
+      ),
+    ).rejects.toThrow(/row-level security/);
+    await expect(
+      env.as(victor, (tx) =>
+        tx
+          .insertInto('retirementProfiles')
+          .values({ workspaceId: wsA, userId: victor, birthDate: '1990-01-01' })
+          .execute(),
       ),
     ).rejects.toThrow(/row-level security/);
   });

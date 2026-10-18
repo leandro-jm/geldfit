@@ -5,15 +5,18 @@ import {
   diffDays,
   formatBRL,
   formatDateBR,
+  formatPct,
   impliedMonthlyRate,
   monthLabel,
   planInstallments,
   presentValueAtCdi,
+  type CommitmentDTO,
   type PaymentFlow,
   type ProjectionDTO,
 } from '@sf/shared';
 import { sql } from '@sf/db';
 import { AppError } from '../lib/errors.js';
+import { commitmentAnswer, commitmentVisual, computeCommitment } from '../domain/commitment.js';
 import {
   emergencyReserve,
   emergencyReserveAnswer,
@@ -64,17 +67,48 @@ interface OptionResult {
   totalCents: number;
   flows: PaymentFlow[];
   after: ProjectionDTO;
+  commitment: CommitmentDTO;
 }
 
-/** Aplica os lançamentos hipotéticos num savepoint, mede a projeção e desfaz. */
-async function measure(ctx: ToolCtx, items: NewTransaction[]): Promise<ProjectionDTO> {
+interface Measured {
+  after: ProjectionDTO;
+  commitment: CommitmentDTO;
+}
+
+/** Aplica os lançamentos hipotéticos num savepoint, mede projeção e renda comprometida e desfaz. */
+async function measure(ctx: ToolCtx, items: NewTransaction[], months: number): Promise<Measured> {
   await sql`savepoint evaluate_purchase`.execute(ctx.tx);
   try {
     await insertTransactions(ctx.tx, ctx.actor, items);
-    return await computeProjection(ctx.tx, ctx.actor.workspaceId);
+    return {
+      after: await computeProjection(ctx.tx, ctx.actor.workspaceId),
+      commitment: await computeCommitment(ctx.tx, ctx.actor.workspaceId, { months, today: ctx.today }),
+    };
   } finally {
     await sql`rollback to savepoint evaluate_purchase`.execute(ctx.tx);
   }
+}
+
+/** Meses em que a compra muda a renda comprometida, com o percentual antes e depois. */
+function commitmentChanges(before: CommitmentDTO, after: CommitmentDTO) {
+  return after.months.flatMap((m, i) => {
+    const b = before.months[i]!;
+    return m.committedCents !== b.committedCents && m.pct !== null && b.pct !== null
+      ? [{ month: m.month, before: b.pct, after: m.pct }]
+      : [];
+  });
+}
+
+function commitmentSentence(label: string, before: CommitmentDTO, after: CommitmentDTO): string | null {
+  const changes = commitmentChanges(before, after);
+  if (!changes.length) return null;
+  const worst = changes.reduce((a, c) => (c.after > a.after ? c : a));
+  const last = changes.at(-1)!;
+  const until = last.month !== worst.month ? ` (as parcelas vão até ${monthLabel(last.month)})` : '';
+  const over = worst.after > after.threshold && worst.before <= after.threshold;
+  return `${label}: a renda comprometida com parcelas sobe de ${formatPct(worst.before)} para ${formatPct(worst.after)} em ${monthLabel(worst.month)}${until}.${
+    over ? ` Passa dos ${formatPct(after.threshold)}, a referência que os bancos usam como limite.` : ''
+  }`;
 }
 
 export const evaluatePurchaseTool = defineTool({
@@ -107,6 +141,8 @@ export const evaluatePurchaseTool = defineTool({
     if (!account) throw new AppError(422, 'Cadastre ao menos uma conta em reais para avaliar a compra.');
     const desc = `[simulação] ${input.description}`;
     const before = await computeProjection(ctx.tx, ws);
+    const horizon = Math.min(24, Math.max(12, (input.installments ?? 0) + 2));
+    const beforeCommit = await computeCommitment(ctx.tx, ws, { months: horizon, today: ctx.today });
 
     const options: OptionResult[] = [];
     const cashLabel =
@@ -115,16 +151,20 @@ export const evaluatePurchaseTool = defineTool({
       label: cashLabel,
       totalCents: cash,
       flows: [{ days: diffDays(date, ctx.today), amountCents: cash }],
-      after: await measure(ctx, [
-        {
-          accountId: account.id,
-          date,
-          amountCents: cash,
-          direction: 'out',
-          description: desc,
-          status: 'scheduled',
-        },
-      ]),
+      ...(await measure(
+        ctx,
+        [
+          {
+            accountId: account.id,
+            date,
+            amountCents: cash,
+            direction: 'out',
+            description: desc,
+            status: 'scheduled',
+          },
+        ],
+        horizon,
+      )),
     });
 
     if (input.installments) {
@@ -147,34 +187,48 @@ export const evaluatePurchaseTool = defineTool({
             days: diffDays(p.statement.dueDate, ctx.today),
             amountCents: p.amountCents,
           })),
-          after: await measure(ctx, [
-            {
-              cardId: card.id,
-              date,
-              amountCents: total,
-              installments: n,
-              direction: 'out',
-              description: desc,
-              status: 'scheduled',
-            },
-          ]),
+          ...(await measure(
+            ctx,
+            [
+              {
+                cardId: card.id,
+                date,
+                amountCents: total,
+                installments: n,
+                direction: 'out',
+                description: desc,
+                status: 'scheduled',
+              },
+            ],
+            horizon,
+          )),
         });
       } else {
-        // sem cartão: carnê/boleto mensal a partir do mês seguinte
+        // sem cartão: carnê/boleto mensal a partir do mês seguinte, como grupo de parcelas
         const each = Math.floor(total / n);
-        const items = Array.from({ length: n }, (_, k) => ({
-          accountId: account.id,
-          date: addMonths(date, k + 1),
-          amountCents: k === 0 ? total - each * (n - 1) : each,
-          direction: 'out' as const,
-          description: desc,
-          status: 'scheduled' as const,
-        }));
+        const first = addMonths(date, 1);
         options.push({
           label: `${n}x de ${formatBRL(each)} (carnê)`,
           totalCents: total,
-          flows: items.map((i) => ({ days: diffDays(i.date, ctx.today), amountCents: i.amountCents })),
-          after: await measure(ctx, items),
+          flows: Array.from({ length: n }, (_, k) => ({
+            days: diffDays(addMonths(first, k), ctx.today),
+            amountCents: k === 0 ? total - each * (n - 1) : each,
+          })),
+          ...(await measure(
+            ctx,
+            [
+              {
+                accountId: account.id,
+                date: first,
+                amountCents: total,
+                installments: n,
+                direction: 'out',
+                description: desc,
+                status: 'scheduled',
+              },
+            ],
+            horizon,
+          )),
         });
       }
     }
@@ -200,6 +254,14 @@ export const evaluatePurchaseTool = defineTool({
         headroom_after: formatBRL(Math.max(0, headroom)),
         first_below_floor: o.after.firstBelowFloor ? monthLabel(o.after.firstBelowFloor, true) : null,
         present_value_at_cdi: cdiAnnual !== null ? formatBRL(presentValueAtCdi(o.flows, cdiAnnual)) : null,
+        commitment_peak_after: o.commitment.peak
+          ? `${formatPct(o.commitment.peak.pct)} em ${monthLabel(o.commitment.peak.month)}`
+          : null,
+        commitment_months_changed: commitmentChanges(beforeCommit, o.commitment).map((c) => ({
+          month: monthLabel(c.month),
+          before: formatPct(c.before),
+          after: formatPct(c.after),
+        })),
         _headroom: headroom,
         _pv: cdiAnnual !== null ? presentValueAtCdi(o.flows, cdiAnnual) : null,
       };
@@ -236,10 +298,28 @@ export const evaluatePurchaseTool = defineTool({
       sentences.push(
         cashRow.fits ? 'Só o à vista cabe sem furar o piso.' : 'Só o parcelado cabe sem furar o piso.',
       );
+    if (instOpt) {
+      const s = commitmentSentence(instOpt.label, beforeCommit, instOpt.commitment);
+      if (s) sentences.push(s);
+      else if (!beforeCommit.months.some((m) => m.pct !== null))
+        sentences.push(
+          'Sem renda recorrente cadastrada, não calculei quanto da renda as parcelas comprometem.',
+        );
+    }
+    const shown = instOpt?.commitment ?? beforeCommit;
+    if (shown.months.some((m) => m.committedCents > 0 && m.pct !== null))
+      ctx.emitVisual(
+        commitmentVisual(
+          shown,
+          instOpt ? beforeCommit : undefined,
+          instOpt ? 'Renda comprometida com parcelas: antes × com a compra' : undefined,
+        ),
+      );
 
     return {
       note: 'Avaliação: nada foi gravado.',
       floor: formatBRL(floor),
+      commitment_before: beforeCommit.months[0]?.pct != null ? formatPct(beforeCommit.months[0].pct) : null,
       before_min: before.minClosing
         ? `${formatBRL(before.minClosing.cents)} em ${monthLabel(before.minClosing.month, true)}`
         : null,
@@ -248,7 +328,7 @@ export const evaluatePurchaseTool = defineTool({
       options: rows.map(({ _headroom, _pv, ...r }) => (void _headroom, void _pv, r)),
       answer: sentences.join(' '),
       instruction:
-        'Apresente as opções e a comparação; a decisão é do usuário. Se ele decidir comprar, registre com draft_transactions.',
+        'Apresente as opções, a comparação e o efeito na renda comprometida (o gráfico por mês já aparece junto da resposta); a decisão é do usuário. Se ele decidir comprar, registre com draft_transactions.',
     };
   },
 });
@@ -274,4 +354,43 @@ export const getEmergencyReserveTool = defineTool({
   },
 });
 
-export const PLAN_TOOLS = [getSafeToSpendTool, evaluatePurchaseTool, getEmergencyReserveTool];
+export const getIncomeCommitmentTool = defineTool({
+  name: 'get_income_commitment',
+  description:
+    'Renda futura comprometida com parcelas: mês a mês, quanto da renda recorrente (salário, pró-labore) já está reservado para parcelas do cartão, carnês e financiamentos, o pico e quando cada parcela termina. Use para "quanto da minha renda está comprometida?", "quando minhas parcelas acabam?", "estou parcelando demais?". Mostra um gráfico junto da resposta.',
+  kind: 'read',
+  schema: z.object({
+    months: z.number().int().min(1).max(24).nullish().describe('Meses à frente (padrão 12)'),
+  }),
+  async run(ctx, input) {
+    const c = await computeCommitment(ctx.tx, ctx.actor.workspaceId, {
+      months: input.months ?? 12,
+      today: ctx.today,
+    });
+    if (c.months.some((m) => m.committedCents > 0 && m.pct !== null)) ctx.emitVisual(commitmentVisual(c));
+    return {
+      threshold: formatPct(c.threshold),
+      months: c.months.map((m) => ({
+        month: monthLabel(m.month),
+        income: formatBRL(m.incomeCents),
+        committed: formatBRL(m.committedCents),
+        pct: m.pct !== null ? formatPct(m.pct) : null,
+        level: m.level,
+        items: m.items.map(
+          (it) => `${it.label}${it.n && it.total ? ` (${it.n}/${it.total})` : ''} ${formatBRL(it.cents)}`,
+        ),
+      })),
+      peak: c.peak ? `${formatPct(c.peak.pct)} em ${monthLabel(c.peak.month)}` : null,
+      ends: c.releases.map((r) => `${r.label} termina em ${monthLabel(r.month)} (${formatBRL(r.cents)})`),
+      answer: commitmentAnswer(c),
+      instruction: 'O gráfico por mês já aparece junto da resposta; não repita a lista inteira de meses.',
+    };
+  },
+});
+
+export const PLAN_TOOLS = [
+  getSafeToSpendTool,
+  evaluatePurchaseTool,
+  getEmergencyReserveTool,
+  getIncomeCommitmentTool,
+];

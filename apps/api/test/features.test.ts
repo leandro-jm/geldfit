@@ -368,6 +368,7 @@ describe.skipIf(!hasDb)('Primeira onda: boleto/Pix, folga, alerta de conta negat
             today: '2026-10-13',
             attachmentIds: [],
             emitDraft: (d) => drafts.push(d),
+            emitVisual: () => {},
           },
           draftGoalTool.schema.parse(input),
         ),

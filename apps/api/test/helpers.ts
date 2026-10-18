@@ -27,6 +27,7 @@ export function makeApp(env: TestEnv, llm: LLMProvider = new FakeProvider()): Ap
     ),
     mailer: { send: async () => {} },
     whatsapp: null,
+    push: null,
     log: pino({ level: process.env.TEST_LOG ?? 'silent' }),
   };
 }

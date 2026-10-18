@@ -4,11 +4,14 @@ import { addMonths, startOfMonth, type PensionDTO } from '@sf/shared';
 import type { AppContext } from '../context.js';
 import { forbidden, notFound } from '../lib/errors.js';
 import { inActor } from '../lib/http.js';
+import { computeCommitment } from '../domain/commitment.js';
 import { categorySpend, dashboardSummary, monthlyFlows } from '../domain/dashboard.js';
 import { confirmDraft, createDraft, DRAFT_SCHEMAS, type DraftKind } from '../domain/drafts.js';
 import { workspaceToday } from '../domain/ledger.js';
 import { buildPortfolio } from '../domain/portfolio.js';
 import { computeProjection } from '../domain/projection.js';
+import { retirementScenario } from '../domain/retirement.js';
+import { detectSeasonal, seasonalCalendar } from '../domain/seasonal.js';
 import { emergencyReserve, safeToSpend } from '../domain/forecast.js';
 import {
   listAccounts,
@@ -178,9 +181,32 @@ export async function financeRoutes(f: FastifyInstance, app: AppContext, guards:
       })
       .parse(req.query);
     return inActor(app, req, (tx, a) =>
-      computeProjection(tx, a.workspaceId, { accountId: q.account ?? null, months: q.months }),
+      computeProjection(tx, a.workspaceId, {
+        accountId: q.account ?? null,
+        months: q.months,
+        withSeasonal: true,
+      }),
     );
   });
+
+  // Calendário anual (IPVA, IPTU, 13º...): itens aprendidos do histórico e próximas ocorrências
+  f.get('/api/calendar', pre, async (req) => {
+    const { months } = z
+      .object({ months: z.coerce.number().int().min(1).max(24).default(12) })
+      .parse(req.query);
+    return inActor(app, req, async (tx, a) =>
+      seasonalCalendar(tx, a.workspaceId, await workspaceToday(tx, a.workspaceId), months),
+    );
+  });
+  // Refaz a detecção na hora (ex.: logo depois de importar um extrato antigo)
+  f.post('/api/calendar/detect', pre, async (req) =>
+    inActor(app, req, async (tx, a) => {
+      if (a.role === 'viewer') throw forbidden('Seu papel neste workspace é só leitura.');
+      const today = await workspaceToday(tx, a.workspaceId);
+      const r = await detectSeasonal(tx, a.workspaceId, today);
+      return { ...r, calendar: await seasonalCalendar(tx, a.workspaceId, today, 12) };
+    }),
+  );
 
   f.get('/api/dashboard/summary', pre, async (req) =>
     inActor(app, req, async (tx, a) =>
@@ -192,6 +218,14 @@ export async function financeRoutes(f: FastifyInstance, app: AppContext, guards:
       safeToSpend(tx, a.workspaceId, await workspaceToday(tx, a.workspaceId)),
     ),
   );
+  f.get('/api/dashboard/commitment', pre, async (req) => {
+    const { months } = z
+      .object({ months: z.coerce.number().int().min(1).max(24).default(12) })
+      .parse(req.query);
+    return inActor(app, req, async (tx, a) =>
+      computeCommitment(tx, a.workspaceId, { months, today: await workspaceToday(tx, a.workspaceId) }),
+    );
+  });
   f.get('/api/dashboard/emergency-reserve', pre, async (req) =>
     inActor(app, req, async (tx, a) =>
       emergencyReserve(tx, a.workspaceId, await workspaceToday(tx, a.workspaceId)),
@@ -243,6 +277,42 @@ export async function financeRoutes(f: FastifyInstance, app: AppContext, guards:
       };
     }),
   );
+
+  // Cenário de aposentadoria: perfil salvo + ajustes pontuais pela query (taxas em fração ao ano)
+  f.get('/api/retirement', pre, async (req) => {
+    const rate = (min: number, max: number) => z.coerce.number().min(min).max(max).optional();
+    const q = z
+      .object({
+        birth_date: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional(),
+        retire_year: z.coerce.number().int().min(1950).max(2150).optional(),
+        retire_age: z.coerce.number().int().min(30).max(90).optional(),
+        end_age: z.coerce.number().int().min(50).max(110).optional(),
+        accumulation_rate: rate(-0.05, 0.2),
+        withdrawal_rate: rate(-0.05, 0.2),
+        contribution_growth: rate(-0.1, 0.1),
+        target_income_cents: z.coerce.number().int().positive().optional(),
+        inss_cents: z.coerce.number().int().nonnegative().optional(),
+        include_investments: z.enum(['0', '1', 'true', 'false']).optional(),
+      })
+      .parse(req.query);
+    return inActor(app, req, async (tx, a) =>
+      retirementScenario(tx, a, await workspaceToday(tx, a.workspaceId), {
+        birthDate: q.birth_date,
+        retireYear: q.retire_year,
+        retireAge: q.retire_age,
+        endAge: q.end_age,
+        accumulationRate: q.accumulation_rate,
+        withdrawalRate: q.withdrawal_rate,
+        contributionGrowth: q.contribution_growth,
+        targetIncomeCents: q.target_income_cents,
+        inssMonthlyCents: q.inss_cents,
+        includeInvestments: q.include_investments ? ['1', 'true'].includes(q.include_investments) : undefined,
+      }),
+    );
+  });
 
   f.get('/api/portfolio', pre, async (req) =>
     inActor(app, req, async (tx, a) =>

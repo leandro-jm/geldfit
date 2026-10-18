@@ -17,7 +17,11 @@ import { coreRoutes } from './routes/core.js';
 import { financeRoutes } from './routes/finance.js';
 import { chatRoutes } from './routes/chat.js';
 import { channelRoutes } from './routes/channels.js';
+import { pushRoutes } from './routes/push.js';
 import { lgpdRoutes } from './routes/lgpd.js';
+import { voiceRoutes } from './routes/voice.js';
+import { agentRoutes } from './routes/agent.js';
+import { adminRoutes } from './routes/admin.js';
 import { pgErrorCode } from '@sf/db';
 
 export async function buildServer(
@@ -107,11 +111,15 @@ export async function buildServer(
   });
 
   const guards = { user: sessionGuard(auth), ws: workspaceGuard(app) };
-  server.get('/api/health', async () => ({ ok: true, llm: app.llm.name, whatsapp: Boolean(app.whatsapp) }));
+  server.get('/api/health', async () => ({ ok: true, llm: app.llm.name, whatsapp: Boolean(app.whatsapp), push: Boolean(app.push) }));
   await coreRoutes(server, app, guards);
   await financeRoutes(server, app, guards);
   await chatRoutes(server, app, guards, notifier);
   await channelRoutes(server, app, guards);
+  await pushRoutes(server, app, guards);
   await lgpdRoutes(server, app, guards);
+  await voiceRoutes(server, app, guards);
+  await agentRoutes(server, app, guards);
+  await adminRoutes(server, app, guards);
   return { server, notifier };
 }

@@ -27,6 +27,7 @@ import {
   ThemeToggle,
   WorkspaceSwitcher,
 } from './shell-parts';
+import { AssistantBell } from '@/components/agent/nudge-card';
 
 const CHAT_MIN = 340;
 const CHAT_MAX = 640;
@@ -71,6 +72,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       void navigate({ to: '/', replace: true });
     }
   }, [isChatRoute, bp, navigate]);
+
+  // clique numa notificação push com o app aberto → navega (ver src/sw.ts)
+  useEffect(() => {
+    const onMsg = (e: MessageEvent<{ type?: string; url?: string }>) => {
+      if (e.data?.type === 'navigate' && e.data.url) void navigate({ href: e.data.url });
+    };
+    navigator.serviceWorker?.addEventListener('message', onMsg);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
+  }, [navigate]);
 
   const toggleSidebar = () => {
     setSidebarCollapsed((c) => {
@@ -125,6 +135,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="min-w-0 flex-1">
             <WorkspaceSwitcher compact />
           </div>
+          <AssistantBell />
           <PrivacyToggle />
           <AvatarMenu withTheme />
         </header>
@@ -154,6 +165,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <AccountFilter />
           </div>
           <div className="flex-1" />
+          <AssistantBell />
           <PrivacyToggle />
           <ThemeToggle />
           {bp === 'desktop' && !chatOpen ? (

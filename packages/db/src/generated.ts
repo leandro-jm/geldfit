@@ -42,12 +42,81 @@ export interface Accounts {
   workspaceId: string;
 }
 
+export interface AgentMemories {
+  category: string;
+  confidence: Numeric | null;
+  confirmedAt: Timestamp | null;
+  content: string;
+  createdAt: Generated<Timestamp>;
+  expiresAt: string | null;
+  id: Generated<string>;
+  importance: Generated<number>;
+  key: string;
+  pinned: Generated<boolean>;
+  scope: Generated<string>;
+  sensitive: Generated<boolean>;
+  source: Generated<string>;
+  sourceMessageId: string | null;
+  status: Generated<string>;
+  updatedAt: Generated<Timestamp>;
+  userId: string;
+  value: Generated<Json>;
+  workspaceId: string;
+}
+
+export interface AgentNudgeMutes {
+  createdAt: Generated<Timestamp>;
+  kind: string;
+  until: Timestamp | null;
+  userId: string;
+  workspaceId: string;
+}
+
+export interface AgentNudges {
+  category: string;
+  conversationId: string | null;
+  createdAt: Generated<Timestamp>;
+  deliveredAt: Timestamp | null;
+  deliveredChannel: string | null;
+  draftId: string | null;
+  draftKind: string | null;
+  draftPayload: Json | null;
+  draftPreview: Json | null;
+  expiresAt: Timestamp | null;
+  facts: Generated<Json>;
+  fingerprint: string;
+  id: Generated<string>;
+  kind: string;
+  message: string;
+  options: Generated<Json>;
+  priority: Generated<number>;
+  reminderId: string | null;
+  respondedAt: Timestamp | null;
+  response: Json | null;
+  scheduledFor: Timestamp | null;
+  snoozeUntil: Timestamp | null;
+  status: Generated<string>;
+  title: string;
+  type: string;
+  updatedAt: Generated<Timestamp>;
+  userId: string;
+  workspaceId: string;
+}
+
 export interface AllocationTargets {
   assetClass: string;
   maxPct: Numeric | null;
   minPct: Numeric | null;
   targetPct: Numeric;
   workspaceId: string;
+}
+
+export interface AppSettings {
+  key: string;
+  secret: Generated<boolean>;
+  updatedAt: Generated<Timestamp>;
+  updatedBy: string | null;
+  value: string;
 }
 
 export interface AssetEvents {
@@ -256,6 +325,7 @@ export interface Conversations {
   createdAt: Generated<Timestamp>;
   id: Generated<string>;
   lastMessageAt: Generated<Timestamp>;
+  memoryCursorAt: Timestamp | null;
   userId: string;
   workspaceId: string;
 }
@@ -332,6 +402,8 @@ export interface LlmUsage {
   provider: string;
   purpose: string;
   userId: string | null;
+  webFetchRequests: Generated<number>;
+  webSearchRequests: Generated<number>;
   workspaceId: string | null;
 }
 
@@ -397,6 +469,17 @@ export interface ProjectionSnapshots {
   workspaceId: string;
 }
 
+export interface PushSubscriptions {
+  auth: string;
+  createdAt: Generated<Timestamp>;
+  device: string | null;
+  endpoint: string;
+  id: Generated<string>;
+  lastUsedAt: Timestamp | null;
+  p256dh: string;
+  userId: string;
+}
+
 export interface Recurrences {
   accountId: string | null;
   amountCents: number;
@@ -444,6 +527,44 @@ export interface Reminders {
   workspaceId: string;
 }
 
+export interface RetirementProfiles {
+  accumulationRate: Generated<Numeric>;
+  birthDate: string;
+  contributionGrowth: Generated<Numeric>;
+  endAge: Generated<number>;
+  includeInvestments: Generated<boolean>;
+  inssMonthlyCents: number | null;
+  retireAge: Generated<number>;
+  targetIncomeCents: number | null;
+  updatedAt: Generated<Timestamp>;
+  userId: string;
+  withdrawalRate: Generated<Numeric>;
+  workspaceId: string;
+}
+
+export interface SeasonalItems {
+  adjustmentPct: Numeric | null;
+  categoryId: string | null;
+  confidence: Generated<string>;
+  confirmedAt: Timestamp | null;
+  createdAt: Generated<Timestamp>;
+  direction: string | null;
+  evidence: Generated<Json>;
+  id: Generated<string>;
+  key: string;
+  kind: string;
+  label: string;
+  leadDays: Generated<number>;
+  matchPattern: string | null;
+  recurrenceId: string | null;
+  schedule: Generated<Json>;
+  scheduleYear: number | null;
+  source: Generated<string>;
+  status: Generated<string>;
+  updatedAt: Generated<Timestamp>;
+  workspaceId: string;
+}
+
 export interface Trades {
   assetId: string;
   attachmentId: string | null;
@@ -484,6 +605,7 @@ export interface Transactions {
   kind: Generated<string>;
   paysStatementId: string | null;
   recurrenceId: string | null;
+  seasonalItemId: string | null;
   source: Generated<string>;
   status: Generated<string>;
   transferId: string | null;
@@ -501,6 +623,26 @@ export interface UserChannels {
   userId: string;
   verificationCodeHash: string | null;
   verifiedAt: Timestamp | null;
+}
+
+export interface UserFinancialProfiles {
+  dependents: number | null;
+  incomeStability: string | null;
+  interests: Generated<string[]>;
+  lifeStage: string | null;
+  memoryAuto: Generated<boolean>;
+  nudgeChannels: Generated<string[]>;
+  nudgeFrequency: Generated<string>;
+  objectives: Generated<string[]>;
+  ownsHome: boolean | null;
+  ownsVehicle: boolean | null;
+  questionsEnabled: Generated<boolean>;
+  riskDeclaredAt: Timestamp | null;
+  riskSelf: string | null;
+  uf: string | null;
+  updatedAt: Generated<Timestamp>;
+  userId: string;
+  workspaceId: string;
 }
 
 export interface Workspaces {
@@ -532,7 +674,11 @@ export interface WorkspaceSettings {
 
 export interface DB {
   accounts: Accounts;
+  agentMemories: AgentMemories;
+  agentNudgeMutes: AgentNudgeMutes;
+  agentNudges: AgentNudges;
   allocationTargets: AllocationTargets;
+  appSettings: AppSettings;
   assetEvents: AssetEvents;
   assetPrices: AssetPrices;
   assets: Assets;
@@ -563,12 +709,16 @@ export interface DB {
   pensionPlans: PensionPlans;
   plannedCashflows: PlannedCashflows;
   projectionSnapshots: ProjectionSnapshots;
+  pushSubscriptions: PushSubscriptions;
   recurrences: Recurrences;
   reminderPrefs: ReminderPrefs;
   reminders: Reminders;
+  retirementProfiles: RetirementProfiles;
+  seasonalItems: SeasonalItems;
   trades: Trades;
   transactions: Transactions;
   userChannels: UserChannels;
+  userFinancialProfiles: UserFinancialProfiles;
   workspaces: Workspaces;
   workspaceSettings: WorkspaceSettings;
 }

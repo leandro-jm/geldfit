@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { parseAmount, parseMonth, parseRelativeDate, type DraftDTO } from '@sf/shared';
+import { parseAmount, parseMonth, parseRelativeDate, type ChatVisual, type DraftDTO } from '@sf/shared';
 import type { Tx } from '@sf/db';
 import type { Actor, AppContext } from '../context.js';
 import { AppError } from '../lib/errors.js';
@@ -13,6 +13,8 @@ export interface ToolCtx {
   /** Anexos enviados nesta mensagem (ids). */
   attachmentIds: string[];
   emitDraft(d: DraftDTO): void;
+  /** Gráfico anexado à resposta (web desenha; WhatsApp recebe em texto). */
+  emitVisual(v: ChatVisual): void;
 }
 
 export interface AgentTool<S extends z.ZodType = z.ZodType> {

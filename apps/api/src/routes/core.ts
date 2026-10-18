@@ -4,8 +4,10 @@ import { z } from 'zod';
 import { sql, withUserContext } from '@sf/db';
 import type { Me } from '@sf/shared';
 import type { AppContext } from '../context.js';
+import { isAdmin } from '../lib/admin.js';
 import { AppError, forbidden } from '../lib/errors.js';
 import { actorOf, inActor } from '../lib/http.js';
+import { realtimeKey } from '../voice/realtime.js';
 
 export const CONSENT_VERSION = '2026-10';
 
@@ -37,7 +39,12 @@ export async function coreRoutes(f: FastifyInstance, app: AppContext, guards: { 
           role: w.role as Me['workspaces'][number]['role'],
         })),
         consented: Boolean(consent),
-        features: { audio: app.transcriber !== null },
+        features: {
+          audio: app.transcriber !== null,
+          voice: realtimeKey(app.config) !== null,
+          voiceProvider: app.config.VOICE_PROVIDER,
+        },
+        isAdmin: isAdmin(app.config, user.email),
       };
     });
   });

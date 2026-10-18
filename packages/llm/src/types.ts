@@ -48,6 +48,9 @@ export interface Usage {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   costMicroUsd: number;
+  /** Ferramentas de servidor do provedor (busca e leitura web), cobradas à parte. */
+  webSearchRequests?: number;
+  webFetchRequests?: number;
 }
 
 export interface ChatResponse {

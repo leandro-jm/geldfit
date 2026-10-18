@@ -94,6 +94,25 @@ export function route(raw: string): { name: string; input: Record<string, unknow
     return { name: 'draft_bill', input: { code: raw, account } };
   }
 
+  // memória: "lembra que meu filho nasce em março", "esquece que eu queria viajar", "o que você sabe sobre mim?"
+  let mem = s.match(/^(?:lembra|lembre|anota|anote|guarda|guarde)(?:-se)?\s+(?:que\s+)?(.{3,})$/);
+  if (mem) {
+    const fact = raw.trim().replace(/^\S+(?:-se)?\s+(?:que\s+)?/i, '');
+    const category = /filh|esposa|marido|famil|nasce|casament/.test(s)
+      ? 'familia'
+      : /quero|pretendo|vou|sonho|plano|meta/.test(s)
+        ? 'objetivo'
+        : /prefiro|gosto/.test(s)
+          ? 'preferencia'
+          : 'contexto';
+    return { name: 'remember', input: { content: cap(fact), category } };
+  }
+  mem = s.match(/^(?:esquece|esqueca|apaga da memoria)\s+(?:que\s+)?(.{3,})$/);
+  if (mem) return { name: 'forget', input: { search: mem[1] } };
+  if (/o que (?:voce )?sabe (?:sobre|de) mim|o que voce lembra/.test(s))
+    return { name: 'list_memories', input: {} };
+  if (/^(?:como estao |quais sao )?minhas metas\??$/.test(s)) return { name: 'list_goals', input: {} };
+
   // "todo dia 5 entra 8.500 de salário no BB"
   let m = s.match(
     new RegExp(
@@ -222,9 +241,54 @@ export function route(raw: string): { name: string; input: Record<string, unknow
         cash_discount_pct: m[4] ? Number(m[4]) : null,
       },
     };
+  if (
+    /renda (?:ja )?(?:esta )?comprometida|comprometid\w* (?:com|em) parcelas|quanto da (?:minha )?renda|quando (?:minhas |as )?parcelas (?:acabam|terminam)|parcelando demais/.test(
+      s,
+    )
+  )
+    return { name: 'get_income_commitment', input: {} };
   if (/quanto (?:eu )?posso gastar|tenho folga/.test(s)) return { name: 'get_safe_to_spend', input: {} };
   if (/reserva de emergencia|sem salario|demitid|desligad|perder o emprego/.test(s))
     return { name: 'get_emergency_reserve', input: {} };
+
+  // aposentadoria: "nasci em 15/03/1985", "se eu aposentar em 2040, quanto recebo?", "aos 60 anos"
+  m = s.match(/^nasci em\s+(\S+)/);
+  if (m) return { name: 'draft_retirement_profile', input: { birth_date: m[1] } };
+  if (/aposent/.test(s)) {
+    const year = s.match(/aposent\w*\s+(?:em|no ano de)\s+(\d{4})/)?.[1];
+    const age = s.match(/aposent\w*\s+(?:aos|com)\s+(\d{2})\s+anos/)?.[1];
+    return {
+      name: 'retirement_scenario',
+      input: {
+        ...(year ? { retire_year: Number(year) } : {}),
+        ...(age ? { retire_age: Number(age) } : {}),
+        ...(/carteira|investimentos/.test(s) ? { include_investments: true } : {}),
+      },
+    };
+  }
+
+  // calendário anual: "confirma o IPVA de 2.500", "pode colocar o IPTU", "quando vem o IPVA?"
+  const SEASONAL = String.raw`ipva|iptu|13[ºo]?(?: salario)?|decimo terceiro|matricula|material escolar|irpf|seguro(?: (?!de\b|em\b)[a-z]+)?`;
+  m = s.match(
+    new RegExp(
+      String.raw`^(?:confirma|pode colocar|coloca|inclui)\s+(?:o\s+|a\s+)?(${SEASONAL})(?:\s+(?:de|em)\s+${AMOUNT})?`,
+    ),
+  );
+  if (m)
+    return {
+      name: 'draft_seasonal',
+      input: { action: m[2] ? 'edit' : 'confirm', item: m[1], amount: m[2] ?? null },
+    };
+  m = s.match(new RegExp(String.raw`^ignora\s+(?:o\s+|a\s+)?(${SEASONAL})`));
+  if (m) return { name: 'draft_seasonal', input: { action: 'dismiss', item: m[1] } };
+  if (
+    /\b(ipva|iptu|calendario|decimo terceiro|matricula|material escolar|estoura|gastos anuais|come cotas)\b|13º/.test(
+      s,
+    )
+  ) {
+    const item = s.match(/\b(ipva|iptu|matricula|material escolar|decimo terceiro)\b|13º/)?.[0] ?? null;
+    return { name: 'get_calendar', input: item ? { item } : {} };
+  }
 
   // "quanto sobra em dezembro?"
   m = s.match(

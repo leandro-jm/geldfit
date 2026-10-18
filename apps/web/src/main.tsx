@@ -3,11 +3,16 @@ import { createRoot } from 'react-dom/client';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import { Toaster } from 'sonner';
+import { registerSW } from 'virtual:pwa-register';
 import { queryClient } from '@/lib/queries';
 import { PrefsProvider, usePrefs } from '@/lib/prefs';
 import { TooltipProvider } from '@/components/ui/menu';
 import { router } from './router';
 import './styles.css';
+// Captura cedo o beforeinstallprompt (o navegador dispara uma única vez).
+import '@/lib/pwa';
+
+registerSW({ immediate: true });
 
 function ThemedToaster() {
   const { resolvedTheme } = usePrefs();

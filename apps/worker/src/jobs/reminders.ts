@@ -1,13 +1,32 @@
 import { sql, withUserContext, type Db } from '@sf/db';
-import { addDays, addMonths, formatBRL, formatDateBR, monthLabel, startOfMonth } from '@sf/shared';
+import {
+  addDays,
+  addMonths,
+  diffDays,
+  formatBRL,
+  formatDateBR,
+  monthLabel,
+  startOfMonth,
+  type SeasonalItemDTO,
+  type SeasonalOccurrenceDTO,
+} from '@sf/shared';
 import type { Actor } from '@sf/api/context';
 import { createDraft } from '@sf/api/domain/drafts';
 import { categorySpend } from '@sf/api/domain/dashboard';
 import { accountShortfalls, safeToSpendFrom, shortfallSentence } from '@sf/api/domain/forecast';
 import { computeProjection } from '@sf/api/domain/projection';
 import { upcoming } from '@sf/api/domain/queries';
+import { describeEvidence, describeSchedule, seasonalCalendar } from '@sf/api/domain/seasonal';
 import type { WorkerContext } from '../context.js';
-import { activeWorkspaces, membersOf, postAssistantMessage, whatsappConversation } from './util.js';
+import { pushText } from '@sf/api/lib/push';
+import {
+  activeWorkspaces,
+  membersOf,
+  notifyPush,
+  postAssistantMessage,
+  whatsappConversation,
+} from './util.js';
+import { deliverNudge } from './nudges.js';
 
 type Kind =
   | 'due_bill'
@@ -17,9 +36,12 @@ type Kind =
   | 'weekly_summary'
   | 'monthly_summary'
   | 'import_reminder'
-  | 'budget_alert';
+  | 'budget_alert'
+  | 'seasonal'
+  | 'nudge'
+  | 'question';
 
-async function enqueue(
+export async function enqueue(
   sys: Db,
   r: {
     workspaceId: string;
@@ -46,7 +68,7 @@ async function enqueue(
  * Agenda os lembretes dos próximos dias (idempotente via dedupe_key). Roda a cada hora.
  *   vencimentos D-3, D-1 e D0; fatura fechou (dia do fechamento); fatura a vencer D-2;
  *   resumo semanal (domingo 19:00); resumo mensal (dia 1); lembrete de importação (dia 2);
- *   orçamento estourado.
+ *   orçamento estourado; calendário anual (lead_days antes da 1ª parcela da temporada).
  */
 export async function scheduleReminders(ctx: WorkerContext) {
   const { sys } = ctx;
@@ -165,6 +187,30 @@ export async function scheduleReminders(ctx: WorkerContext) {
             dedupeKey: `budget_alert:${b.categoryId}:${m.userId}:${ws.today.slice(0, 7)}`,
           });
         }
+      }
+
+      // Calendário anual: um aviso por item e temporada, lead_days (30–60) antes da 1ª parcela não paga
+      const cal = await withUserContext(ctx.app.db, m.userId, (tx) =>
+        seasonalCalendar(tx, ws.id, ws.today, 5),
+      );
+      const lead = new Map(cal.items.map((i) => [i.id, i.leadDays]));
+      const seen = new Set<string>();
+      for (const o of cal.occurrences) {
+        if (o.paid || o.kind === 'info' || o.date <= ws.today) continue;
+        const season = o.season;
+        if (seen.has(`${o.itemId}:${season}`)) continue;
+        seen.add(`${o.itemId}:${season}`);
+        if (addDays(o.date, -(lead.get(o.itemId) ?? 30)) > ws.today) continue;
+        await enqueue(sys, {
+          workspaceId: ws.id,
+          userId: m.userId,
+          kind: 'seasonal',
+          fireAtLocal: at(ws.today),
+          targetType: 'seasonal_item',
+          targetId: o.itemId,
+          payload: { season, date: o.date },
+          dedupeKey: `seasonal:${o.itemId}:${season}:${m.userId}`,
+        });
       }
     }
   }
@@ -300,6 +346,14 @@ async function deliver(
     .where('verifiedAt', 'is not', null)
     .executeTakeFirst();
   const conversationId = await whatsappConversation(app, actor);
+  if (r.kind === 'nudge' || r.kind === 'question')
+    return deliverNudge(
+      ctx,
+      { ...r, targetId: r.targetId! },
+      actor,
+      conversationId,
+      channel?.address ?? null,
+    );
   let text = '';
   const drafts = [];
 
@@ -436,6 +490,42 @@ async function deliver(
       text =
         'Dia de atualizar! Envie aqui o extrato ou a fatura do mês (PDF, foto, CSV ou OFX) e eu importo para você.';
       break;
+    case 'seasonal': {
+      const cal = await withUserContext(app.db, r.userId, (t) =>
+        seasonalCalendar(t, r.workspaceId, todayLocal, 6),
+      );
+      const item = cal.items.find((i) => i.id === r.targetId);
+      const occ = cal.occurrences.filter((o) => o.itemId === r.targetId && !o.paid && o.season === p.season);
+      if (!item || item.status === 'dismissed' || !occ.length)
+        return { status: 'skipped', reason: 'item ignorado ou já pago' };
+      if (item.status === 'suggested' && member.role !== 'viewer') {
+        const d = await withUserContext(app.db, r.userId, (t) =>
+          createDraft(
+            t,
+            actor,
+            'seasonal',
+            { mode: 'confirm', id: item.id, fields: {} },
+            {
+              title: `Confirmar no calendário: ${item.label}`,
+              summary: 'Entra na projeção',
+              lines: [],
+              warnings: [],
+            },
+            conversationId,
+            { computeImpact: false },
+          ),
+        );
+        drafts.push(d);
+      }
+      let closing: { month: string; cents: number } | null = null;
+      if (item.status === 'confirmed') {
+        const proj = await withUserContext(app.db, r.userId, (t) => computeProjection(t, r.workspaceId));
+        const m = proj.months.find((x) => x.month === startOfMonth(occ[0]!.date));
+        if (m) closing = { month: m.month, cents: m.closingCents };
+      }
+      text = seasonalText(item, occ[0]!, todayLocal, drafts.length > 0, closing);
+      break;
+    }
     case 'budget_alert':
       text = `Orçamento de ${p.name}: ${formatBRL(p.spent)} de ${formatBRL(p.budget)} (${Math.round((p.spent / p.budget) * 100)}%) neste mês.`;
       break;
@@ -449,9 +539,16 @@ async function deliver(
       await app.whatsapp.sendText(channel.address, text);
       return { status: 'sent', channel: 'whatsapp' };
     } catch (err) {
-      app.log.warn({ err }, 'WhatsApp falhou; usando e-mail');
+      app.log.warn({ err }, 'WhatsApp falhou; tentando push/e-mail');
     }
   }
+  const pushed = await notifyPush(app, r.userId, {
+    title: subjectFor(r.kind),
+    body: pushText(text),
+    url: urlFor(r.kind),
+    tag: r.id,
+  });
+  if (pushed > 0) return { status: 'sent', channel: 'push' };
   const user = await sys.selectFrom('authUser').select('email').where('id', '=', r.userId).executeTakeFirst();
   if (user && !user.email.endsWith('@invalid.local')) {
     await app.mailer.send(
@@ -462,6 +559,22 @@ async function deliver(
     return { status: 'sent', channel: 'email' };
   }
   return { status: 'failed', reason: 'sem canal disponível' };
+}
+
+/** Página do app aberta ao tocar na notificação. */
+function urlFor(kind: string) {
+  return (
+    (
+      {
+        statement_closed: '/contas',
+        statement_due: '/contas',
+        balance_alert: '/projecao',
+        import_reminder: '/importacoes',
+        budget_alert: '/metas',
+        seasonal: '/calendario',
+      } as Record<string, string>
+    )[kind] ?? '/'
+  );
 }
 
 function subjectFor(kind: string) {
@@ -476,6 +589,9 @@ function subjectFor(kind: string) {
         monthly_summary: 'Seu resumo do mês',
         import_reminder: 'Hora de importar o extrato',
         budget_alert: 'Orçamento',
+        seasonal: 'Calendário financeiro',
+        nudge: 'Sugestão do assistente',
+        question: 'Pergunta do assistente',
       } as Record<string, string>
     )[kind] ?? 'Saúde Financeira'
   );
@@ -551,3 +667,40 @@ async function monthlySummary(ctx: WorkerContext, actor: Actor, today: string): 
 }
 
 export { inQuietHours };
+
+/** Texto do aviso do calendário anual (sugerido pede confirmação; confirmado mostra o saldo do mês). */
+export function seasonalText(
+  item: SeasonalItemDTO,
+  next: SeasonalOccurrenceDTO,
+  today: string,
+  canConfirm: boolean,
+  closing: { month: string; cents: number } | null,
+): string {
+  const days = diffDays(next.date, today);
+  const when =
+    days <= 0 ? 'hoje' : days === 1 ? 'amanhã' : `daqui a ${days} dias (${formatDateBR(next.date)})`;
+  const total = item.schedule.reduce((a, e) => a + e.amountCents, 0);
+  const history = item.evidence.length ? ` Histórico: ${describeEvidence(item)}.` : '';
+  const ask = canConfirm ? ' Quer que eu coloque na projeção? Responda *sim* (ou me diga o valor novo).' : '';
+  if (item.status === 'confirmed') {
+    const part = next.installment ? ` (${next.installment.n}/${next.installment.total})` : '';
+    const value =
+      item.kind === 'adjustment' ? `+${formatBRL(next.amountCents)}/mês` : formatBRL(next.amountCents);
+    return `📅 Lembrete: ${item.label}${part} de ${value} ${when}.${
+      closing
+        ? ` Já está na projeção: ${monthLabel(closing.month, true)} fecha em ${formatBRL(closing.cents)}.`
+        : ''
+    }`;
+  }
+  if (item.kind === 'adjustment')
+    return `📅 ${item.label}: o valor costuma subir nesta época (+${item.adjustmentPct}%). O próximo reajuste deve vir ${when}, cerca de +${formatBRL(next.amountCents)}/mês.${history}${ask}`;
+  if (item.kind === 'income')
+    return `📅 ${cap(when)} deve entrar o ${item.label}: ${formatBRL(total)} ${describeSchedule(item.schedule)}.${
+      item.confidence === 'estimado' ? ' Estimei pelo seu salário.' : history
+    }${ask}`;
+  return `📅 ${cap(when)} vem o ${item.label}: pelo último ano, ${formatBRL(total)} ${describeSchedule(item.schedule)}.${history}${ask}`;
+}
+
+function cap(s: string) {
+  return s[0]!.toUpperCase() + s.slice(1);
+}

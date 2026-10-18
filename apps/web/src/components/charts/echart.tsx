@@ -41,6 +41,9 @@ export interface ChartTheme {
   inColor: string;
   outColor: string;
   floor: string;
+  /** Cores de estado (reservadas: sempre acompanhadas de rótulo). */
+  warning: string;
+  negative: string;
   popover: string;
   border: string;
 }
@@ -59,6 +62,8 @@ export function readChartTheme(): ChartTheme {
     inColor: v('--chart-in'),
     outColor: v('--chart-out'),
     floor: v('--chart-floor'),
+    warning: v('--warning'),
+    negative: v('--negative'),
     popover: v('--popover'),
     border: v('--border'),
   };
@@ -94,6 +99,17 @@ export function baseOption(t: ChartTheme, narrow: boolean): EChartsCoreOption {
 export const moneyAxis = (t: ChartTheme) => ({
   type: 'value' as const,
   axisLabel: { color: t.label, fontSize: 11, formatter: (v: number) => formatBRLCompact(v) },
+  splitLine: { lineStyle: { color: t.grid, width: 1, type: 'solid' as const } },
+  axisLine: { show: false },
+  axisTick: { show: false },
+});
+
+/** Eixo de fração (0,3 → "30%"). */
+export const percentAxis = (t: ChartTheme, max?: number) => ({
+  type: 'value' as const,
+  min: 0,
+  max,
+  axisLabel: { color: t.label, fontSize: 11, formatter: (v: number) => `${Math.round(v * 100)}%` },
   splitLine: { lineStyle: { color: t.grid, width: 1, type: 'solid' as const } },
   axisLine: { show: false },
   axisTick: { show: false },

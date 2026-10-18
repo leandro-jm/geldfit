@@ -11,9 +11,14 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
+      // SW próprio (src/sw.ts) para tratar push e clique na notificação.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       registerType: 'autoUpdate',
-      injectRegister: 'auto',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      injectRegister: false,
+      devOptions: { enabled: true, type: 'module' },
+      includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'badge-72.png'],
       manifest: {
         name: 'Saúde Financeira',
         short_name: 'Saúde Fin.',
@@ -31,12 +36,9 @@ export default defineConfig({
           { src: '/pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
-        // Só o shell do app: nunca cachear respostas da API.
+      injectManifest: {
+        // Só o shell do app: nunca cachear respostas da API (ver src/sw.ts).
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//],
-        runtimeCaching: [],
       },
     }),
   ],

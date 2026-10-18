@@ -6,4 +6,8 @@ export * from './security.js';
 export * from './payments.js';
 export * from './purchase-math.js';
 export * from './goals.js';
+export * from './retirement-math.js';
+export * from './commitment.js';
+export * from './agent.js';
+export * from './ai-settings.js';
 export * from './api-types.js';

@@ -20,10 +20,15 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
+  addDays,
   formatBRL,
+  commitmentHeadline,
   formatDateBR,
+  formatPct,
   monthLabel,
+  type SeasonalOccurrenceDTO,
   type AccountShortfall,
+  type CommitmentLevel,
   type CardDTO,
   type DashboardSummary,
   type InsightDTO,
@@ -32,12 +37,15 @@ import {
 import { api } from '@/lib/api';
 import {
   useAccounts,
+  useCalendar,
   useCards,
   useCategorySpend,
+  useCommitment,
   useEmergencyReserve,
   useFlows,
   useInsights,
   useInvalidateWorkspace,
+  useNudges,
   usePension,
   usePortfolio,
   useProjection,
@@ -60,10 +68,13 @@ import { AskButton } from '@/components/common/ask';
 import { useMarkPaid } from '@/components/common/mark-paid';
 import { TransferDialog } from '@/components/common/transfer-dialog';
 import { useChat } from '@/components/chat/chat-context';
+import { NudgeList } from '@/components/agent/nudge-card';
 import {
   AllocationDonut,
   CLASS_LABEL,
   classColor,
+  CommitmentChart,
+  CommitmentLegend,
   FlowsChart,
   PensionChart,
   PerformanceChart,
@@ -541,6 +552,58 @@ export function MonthDetail({ data, month }: { data: ProjectionDTO; month: strin
           </dd>
         </div>
       </dl>
+      {m.seasonal?.length ? <MonthSeasonal items={m.seasonal} /> : null}
+    </div>
+  );
+}
+
+/** Itens do calendário anual no mês: confirmados já estão nas saídas/entradas; sugeridos não. */
+function MonthSeasonal({ items }: { items: SeasonalOccurrenceDTO[] }) {
+  const pending = items.filter((o) => o.status === 'suggested' && !o.paid);
+  return (
+    <div className="mt-3 border-t pt-2.5">
+      <p className="mb-1 flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground">
+        <CalendarDays className="size-3.5" aria-hidden /> Calendário anual
+      </p>
+      <ul className="space-y-1 text-[13px]">
+        {items.map((o) => (
+          <li key={`${o.itemId}-${o.date}`} className="flex min-w-0 justify-between gap-2">
+            <span className="truncate">
+              {o.label}
+              {o.installment ? ` (${o.installment.n}/${o.installment.total})` : ''}
+              <span className="text-muted-foreground">
+                {' · '}
+                {o.paid
+                  ? 'pago'
+                  : o.kind === 'info'
+                    ? 'informativo'
+                    : o.inProjection
+                      ? 'na projeção'
+                      : 'não incluído'}
+              </span>
+            </span>
+            {o.kind === 'info' ? null : (
+              <span className="shrink-0">
+                {o.kind === 'adjustment' ? '+' : ''}
+                <Money
+                  cents={o.amountCents}
+                  direction={o.direction ?? undefined}
+                  tone={o.inProjection ? (o.direction === 'in' ? 'positive' : undefined) : 'muted'}
+                />
+                {o.kind === 'adjustment' ? '/mês' : ''}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+      {pending.length ? (
+        <Link
+          to="/calendario"
+          className="mt-1.5 inline-block text-[12.5px] font-medium text-primary hover:underline"
+        >
+          Confirmar {pending.length === 1 ? pending[0]!.label : `${pending.length} itens`} no calendário
+        </Link>
+      ) : null}
     </div>
   );
 }
@@ -755,6 +818,33 @@ export function InsightItem({ ins }: { ins: InsightDTO }) {
   );
 }
 
+/** Próximas ações: o que o assistente sugere agora (metas, reserva, orçamento, calendário). */
+export function NextActionsPanel({ className }: { className?: string }) {
+  const q = useNudges('open');
+  const items = q.data ?? [];
+  if (!q.isPending && !q.error && !items.length) return null;
+  return (
+    <Panel
+      id="next-actions"
+      title="Próximas ações"
+      description="Sugestões do assistente a partir dos seus dados"
+      className={className}
+      loading={q.isPending}
+      error={q.error}
+      onRetry={() => void q.refetch()}
+      actions={
+        items.length > 2 ? (
+          <Button asChild size="sm" variant="ghost">
+            <Link to="/assistente">Ver todas ({items.length})</Link>
+          </Button>
+        ) : null
+      }
+    >
+      <NudgeList items={items.slice(0, 2)} compact />
+    </Panel>
+  );
+}
+
 export function InsightsPanel({ className, limit = 4 }: { className?: string; limit?: number }) {
   const q = useInsights();
   const order = { critical: 0, warning: 1, info: 2 };
@@ -793,6 +883,105 @@ export function InsightsPanel({ className, limit = 4 }: { className?: string; li
           ) : null}
         </ul>
       )}
+    </Panel>
+  );
+}
+
+// --------------------------------------------------------------------------------------------
+// Renda comprometida com parcelas
+// --------------------------------------------------------------------------------------------
+
+const COMMITMENT_STATUS: Record<
+  CommitmentLevel,
+  { tone: 'positive' | 'warning' | 'negative'; label: string }
+> = {
+  ok: { tone: 'positive', label: 'tranquilo' },
+  atencao: { tone: 'warning', label: 'atenção' },
+  alto: { tone: 'negative', label: 'alto' },
+};
+
+export function CommitmentPanel({ className }: { className?: string }) {
+  const q = useCommitment(12);
+  const c = q.data;
+  const head = c ? commitmentHeadline(c.months) : null;
+  const committed = c?.months.filter((m) => m.committedCents > 0) ?? [];
+  const release = head ? c?.releases.find((r) => r.month >= head.month) : undefined;
+  const status = head && committed.length ? COMMITMENT_STATUS[head.level] : null;
+  return (
+    <Panel
+      id="commitment"
+      title="Renda comprometida com parcelas"
+      description="Parcelas, carnês e financiamentos sobre a renda recorrente de cada mês"
+      ask={{ question: 'Quanto da minha renda está comprometida com parcelas?' }}
+      className={className}
+      loading={q.isPending}
+      error={q.error}
+      onRetry={() => void q.refetch()}
+      skeletonHeight={240}
+      actions={
+        status ? (
+          <Badge tone={status.tone} data-testid="commitment-status">
+            {status.label}
+          </Badge>
+        ) : null
+      }
+    >
+      {c && head && committed.length ? (
+        <div className="grid gap-4 @min-[820px]:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] @min-[820px]:items-center">
+          <div className="min-w-0" data-testid="commitment-head">
+            <p className="text-[34px] font-semibold leading-10 tracking-tight tnum">{formatPct(head.pct!)}</p>
+            <p className="text-[13.5px]">
+              da renda de {monthLabel(head.month, true)} já está comprometida com parcelas
+            </p>
+            <p className="mt-1 text-[12.5px] text-muted-foreground">
+              <Money cents={head.committedCents} /> de <Money cents={head.incomeCents} />
+              {c.peak && c.peak.month !== head.month && c.peak.pct > head.pct! ? (
+                <>
+                  {' '}
+                  · pico de {formatPct(c.peak.pct)} em {monthLabel(c.peak.month)}
+                </>
+              ) : null}
+            </p>
+            {release ? (
+              <p className="mt-2 rounded-xl bg-subtle/70 px-3 py-2 text-[12.5px]">
+                Em {monthLabel(release.month)} termina <span className="font-medium">{release.label}</span> (
+                <Money cents={release.cents} />
+                /mês)
+              </p>
+            ) : null}
+          </div>
+          <div className="min-w-0">
+            <CommitmentLegend compare={false} />
+            <div className="mt-2">
+              <CommitmentChart data={c.months} threshold={c.threshold} />
+            </div>
+          </div>
+        </div>
+      ) : c && committed.length ? (
+        <EmptyState
+          compact
+          title="Cadastre sua renda para ver o percentual"
+          hint={
+            <>
+              Já há <Money cents={committed[0]!.committedCents} /> em parcelas em{' '}
+              {monthLabel(committed[0]!.month, true)}. Com o salário como recorrência, mostro quanto da renda
+              isso representa.
+            </>
+          }
+          prompt="recebo salário de 6 mil todo dia 5 no BB"
+        />
+      ) : c && head ? (
+        <p className="text-[13.5px] text-muted-foreground" data-testid="commitment-none">
+          Nenhuma parcela comprometendo sua renda nos próximos 12 meses.
+        </p>
+      ) : c ? (
+        <EmptyState
+          compact
+          title="Sem renda recorrente nem parcelas"
+          hint="Cadastre o salário como recorrência e registre compras parceladas para acompanhar quanto da renda já está comprometida."
+          prompt="recebo salário de 6 mil todo dia 5 no BB"
+        />
+      ) : null}
     </Panel>
   );
 }
@@ -1157,6 +1346,47 @@ const KIND_LABEL = {
   scheduled: 'Agendado',
 } as const;
 
+/** Itens do calendário anual que vencem nos próximos 60 dias (aviso antecipado, fora dos 15 dias). */
+function UpcomingSeasonal() {
+  const q = useCalendar(3);
+  const today = todayLocalISO();
+  const limit = addDays(today, 60);
+  const list = (q.data?.occurrences ?? []).filter(
+    (o) => !o.paid && o.kind !== 'info' && o.date >= today && o.date <= limit,
+  );
+  if (!list.length) return null;
+  return (
+    <div className="mt-2 border-t pt-2.5">
+      <Link
+        to="/calendario"
+        className="mb-1 flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground hover:text-foreground"
+      >
+        <CalendarDays className="size-3.5" aria-hidden /> Calendário anual · próximos 60 dias
+      </Link>
+      <ul className="space-y-1 text-[13px]">
+        {list.map((o) => (
+          <li key={`${o.itemId}-${o.date}`} className="flex min-w-0 justify-between gap-2">
+            <span className="truncate">
+              <span className="tnum text-muted-foreground">{formatDateBR(o.date).slice(0, 5)}</span> {o.label}
+              {o.installment ? ` (${o.installment.n}/${o.installment.total})` : ''}
+              {o.status === 'suggested' ? (
+                <Badge tone="warning" className="ml-1.5">
+                  a confirmar
+                </Badge>
+              ) : null}
+            </span>
+            <span className="shrink-0">
+              {o.kind === 'adjustment' ? '+' : ''}
+              <Money cents={o.amountCents} direction={o.direction ?? undefined} />
+              {o.kind === 'adjustment' ? '/mês' : ''}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function UpcomingPanel({ className }: { className?: string }) {
   const q = useUpcoming(15);
   const { canWrite } = useWorkspace();
@@ -1227,6 +1457,7 @@ export function UpcomingPanel({ className }: { className?: string }) {
           })}
         </ul>
       )}
+      <UpcomingSeasonal />
       {dialog}
     </Panel>
   );

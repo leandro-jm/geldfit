@@ -23,6 +23,7 @@ test('smoke: todas as telas sem erros no console; perguntar sobre um painel; edi
     '/previdencia',
     '/importacoes',
     '/configuracoes',
+    '/assistente',
   ]) {
     await page.goto(p);
     await expect(page.locator('h1')).toBeVisible();

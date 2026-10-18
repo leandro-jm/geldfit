@@ -7,7 +7,29 @@ import { loadConfig, type Config } from './config.js';
 import type { AppContext } from './context.js';
 import { EvolutionChannel } from './channels/evolution.js';
 import { createMailer } from './lib/mailer.js';
+import { WebPushSender } from './lib/push.js';
 import { LocalFileStorage } from './storage/file-storage.js';
+
+/**
+ * Provedor de LLM e transcrição a partir da configuração efetiva (ambiente + overrides do banco).
+ * Sem chave da Anthropic, cai no modo demonstração.
+ */
+export function buildAi(config: Config): Pick<AppContext, 'llm' | 'transcriber'> {
+  const noKey = config.LLM_PROVIDER === 'anthropic' && !config.ANTHROPIC_API_KEY;
+  return {
+    llm: providerFromEnv({
+      LLM_PROVIDER: noKey ? 'fake' : config.LLM_PROVIDER,
+      ANTHROPIC_API_KEY: config.ANTHROPIC_API_KEY,
+      LLM_MODEL_SMALL: config.LLM_MODEL_SMALL,
+      LLM_MODEL_LARGE: config.LLM_MODEL_LARGE,
+    }),
+    transcriber: transcriberFromEnv({
+      TRANSCRIBE_API_KEY: config.TRANSCRIBE_API_KEY,
+      TRANSCRIBE_URL: config.TRANSCRIBE_URL,
+      TRANSCRIBE_MODEL: config.TRANSCRIBE_MODEL,
+    }),
+  };
+}
 
 /** Monta as dependências compartilhadas (usado pela API e pelo worker). */
 export function createAppContext(
@@ -15,7 +37,8 @@ export function createAppContext(
 ) {
   const config: Config = loadConfig(opts.env);
   // caminho relativo de FILES_DIR vale a partir da raiz do repositório, não do diretório do app
-  if (!path.isAbsolute(config.FILES_DIR)) config.FILES_DIR = path.resolve(fileURLToPath(new URL('../../../', import.meta.url)), config.FILES_DIR);
+  if (!path.isAbsolute(config.FILES_DIR))
+    config.FILES_DIR = path.resolve(fileURLToPath(new URL('../../../', import.meta.url)), config.FILES_DIR);
   const log = pino({
     level: process.env.LOG_LEVEL ?? 'info',
     base: { svc: opts.name },
@@ -35,12 +58,7 @@ export function createAppContext(
   const app: AppContext = {
     config,
     db: handle.db,
-    llm: providerFromEnv(
-      config.LLM_PROVIDER === 'anthropic' && !process.env.ANTHROPIC_API_KEY
-        ? { ...process.env, LLM_PROVIDER: 'fake' }
-        : process.env,
-    ),
-    transcriber: transcriberFromEnv(process.env),
+    ...buildAi(config),
     storage: new LocalFileStorage(
       config.FILES_DIR,
       config.FILES_ENCRYPTION_KEY,
@@ -59,9 +77,15 @@ export function createAppContext(
       log,
     ),
     whatsapp,
+    push:
+      config.VAPID_PUBLIC_KEY && config.VAPID_PRIVATE_KEY
+        ? new WebPushSender(handle.db, log, {
+            publicKey: config.VAPID_PUBLIC_KEY,
+            privateKey: config.VAPID_PRIVATE_KEY,
+            subject: config.VAPID_SUBJECT,
+          })
+        : null,
     log,
   };
-  if (app.llm.name === 'fake')
-    log.warn('LLM em modo demonstração (sem ANTHROPIC_API_KEY): respostas por regras.');
   return { app, handle };
 }

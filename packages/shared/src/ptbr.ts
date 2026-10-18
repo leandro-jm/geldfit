@@ -13,6 +13,17 @@ export function normalizeDescription(s: string): string {
     .trim();
 }
 
+/** Chave curta de uma descrição: 3 primeiras palavras normalizadas, sem números ("Seguro Auto Porto 3/10" → "seguro auto porto"). */
+export function descriptionKey(s: string): string {
+  return normalizeDescription(s)
+    .replace(/\b\d+\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .slice(0, 3)
+    .join(' ');
+}
+
 const UNITS: Record<string, number> = {
   zero: 0,
   um: 1,

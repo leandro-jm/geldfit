@@ -76,7 +76,28 @@ describe('FakeProvider: roteamento de frases do PRD', () => {
       name: 'evaluate_purchase',
       input: { description: 'Tv', price: '4.000', installments: 10, cash_discount_pct: 8 },
     });
+    expect(fakeRoute('quanto da minha renda está comprometida?')).toEqual({
+      name: 'get_income_commitment',
+      input: {},
+    });
+    expect(fakeRoute('quando minhas parcelas acabam?')?.name).toBe('get_income_commitment');
     // "paguei" continua sendo lançamento comum
     expect(fakeRoute('paguei 230 de luz no BB')?.name).toBe('draft_transactions');
+  });
+  it('calendário anual', () => {
+    expect(fakeRoute('quando vem o IPVA?')).toEqual({ name: 'get_calendar', input: { item: 'ipva' } });
+    expect(fakeRoute('qual mês estoura no ano que vem?')?.name).toBe('get_calendar');
+    expect(fakeRoute('e o 13º, quando cai?')).toEqual({ name: 'get_calendar', input: { item: '13º' } });
+    expect(fakeRoute('confirma o IPVA de 2.500')).toEqual({
+      name: 'draft_seasonal',
+      input: { action: 'edit', item: 'ipva', amount: '2.500' },
+    });
+    expect(fakeRoute('pode colocar o IPTU')).toMatchObject({ input: { action: 'confirm', item: 'iptu' } });
+    expect(fakeRoute('confirma o seguro de 2.600')).toMatchObject({
+      input: { item: 'seguro', amount: '2.600' },
+    });
+    expect(fakeRoute('ignora o seguro auto')).toMatchObject({
+      input: { action: 'dismiss', item: 'seguro auto' },
+    });
   });
 });

@@ -7,7 +7,7 @@ import type { Auth } from './auth.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    user?: { id: string; name: string; email: string; image: string | null };
+    user?: { id: string; name: string; email: string; image: string | null; emailVerified: boolean };
     actor?: Actor;
   }
 }
@@ -21,6 +21,7 @@ export function sessionGuard(auth: Auth) {
       name: session.user.name,
       email: session.user.email,
       image: session.user.image ?? null,
+      emailVerified: session.user.emailVerified === true,
     };
   };
 }

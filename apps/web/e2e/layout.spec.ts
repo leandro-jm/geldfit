@@ -21,6 +21,11 @@ const PAGES = [
     path: '/configuracoes',
     ready: (p: Page) => p.getByRole('heading', { name: 'Configurações', level: 1 }),
   },
+  {
+    name: 'assistente',
+    path: '/assistente',
+    ready: (p: Page) => p.getByRole('heading', { name: 'Assistente', level: 1 }),
+  },
 ] as const;
 
 test.describe.configure({ timeout: 240_000 });

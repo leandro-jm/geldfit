@@ -23,11 +23,13 @@ import { TransactionsPage } from '@/pages/transactions-page';
 import { AccountsPage } from '@/pages/accounts-page';
 import { PortfolioPage } from '@/pages/portfolio-page';
 import { RecurrencesPage } from '@/pages/recurrences-page';
+import { CalendarPage } from '@/pages/calendar-page';
 import { GoalsPage } from '@/pages/goals-page';
 import { PensionPage } from '@/pages/pension-page';
 import { ImportsPage, ImportReviewPage } from '@/pages/imports-page';
 import { SettingsPage } from '@/pages/settings-page';
 import { MorePage } from '@/pages/more-page';
+import { AssistantPage } from '@/pages/assistant-page';
 
 const PUBLIC = ['/login', '/cadastro'];
 
@@ -54,10 +56,12 @@ const TITLES: Record<string, string> = {
   '/contas': 'Contas e Cartões',
   '/carteira': 'Carteira',
   '/recorrencias': 'Recorrências',
+  '/calendario': 'Calendário anual',
   '/metas': 'Metas e Orçamentos',
   '/previdencia': 'Previdência',
   '/importacoes': 'Importações',
   '/configuracoes': 'Configurações',
+  '/assistente': 'Assistente',
   '/mais': 'Mais',
   '/chat': 'Chat',
   '/login': 'Entrar',
@@ -172,11 +176,13 @@ const routeTree = rootRoute.addChildren([
   page('/contas', AccountsPage),
   page('/carteira', PortfolioPage),
   page('/recorrencias', RecurrencesPage),
+  page('/calendario', CalendarPage),
   page('/metas', GoalsPage),
   page('/previdencia', PensionPage),
   page('/importacoes', ImportsPage),
   importReviewRoute,
   page('/configuracoes', SettingsPage),
+  page('/assistente', AssistantPage),
   page('/mais', MorePage),
   page('/chat', () => null),
 ]);

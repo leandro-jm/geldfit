@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import type { ChatMessageDTO, ChatStreamEvent, DraftDTO, PageContext } from '@sf/shared';
+import type { ChatMessageDTO, ChatStreamEvent, ChatVisual, DraftDTO, PageContext } from '@sf/shared';
 import { api, apiFetch, ApiError, readSSE } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace';
 import type { CommitResult } from '@/lib/types';
@@ -28,12 +28,22 @@ export interface UiMessage {
   createdAt: string;
   attachments: UiAttachment[];
   drafts: DraftDTO[];
+  /** Gráficos anexados pela resposta (um por tipo). */
+  visuals?: ChatVisual[];
   streaming?: boolean;
   tool?: string | null;
   error?: string | null;
   context?: PageContext | null;
   /** confirmação vinda do próprio chat ("sim") ou do botão */
   notice?: { summary: string; impact: string | null } | null;
+  /** turno falado na conversa por voz */
+  voice?: boolean;
+  /** separador no fim de uma conversa por voz (ex.: "Conversa por voz · 3 min") */
+  divider?: boolean;
+  /** mensagem da conversa do WhatsApp (histórico unificado) */
+  channel?: 'web' | 'whatsapp';
+  /** o assistente mandou por conta própria (lembrete, sugestão, pergunta) */
+  proactive?: boolean;
 }
 
 export interface OpenChatOptions {
@@ -66,6 +76,16 @@ interface ChatCtx {
   openChat: (opts?: OpenChatOptions) => void;
   registerOpener: (fn: () => void) => void;
   busyDrafts: Set<string>;
+  // conversa por voz: escreve direto na lista e na conversa atual
+  appendMessage: (m: UiMessage) => void;
+  patchMessage: (id: string, fn: (m: UiMessage) => UiMessage) => void;
+  removeMessage: (id: string) => void;
+  markDraft: (draftId: string, status: DraftDTO['status']) => void;
+  invalidate: () => void;
+  getConversationId: () => string | null;
+  setConversationId: (id: string) => void;
+  /** Avisa a sessão de voz ativa sobre decisões tomadas pelo toque (Confirmar/Cancelar). */
+  registerVoiceNotifier: (fn: ((text: string) => void) | null) => void;
 }
 
 const Ctx = createContext<ChatCtx | null>(null);
@@ -78,6 +98,7 @@ const TOOL_LABELS: Record<string, string> = {
   draft_bill: 'Lendo o código de pagamento…',
   get_safe_to_spend: 'Calculando sua folga…',
   evaluate_purchase: 'Avaliando a compra…',
+  get_income_commitment: 'Calculando renda comprometida…',
   get_emergency_reserve: 'Simulando o desligamento…',
   query_transactions: 'Consultando lançamentos…',
   aggregate_transactions: 'Somando lançamentos…',
@@ -104,11 +125,15 @@ function fromDTO(m: ChatMessageDTO): UiMessage {
     createdAt: m.createdAt,
     attachments: m.attachments ?? [],
     drafts: m.drafts ?? [],
+    visuals: m.visuals ?? [],
+    voice: m.voice,
+    channel: m.channel,
+    proactive: m.proactive,
   };
 }
 
 let tempSeq = 0;
-const tempId = (p: string) => `${p}-${Date.now()}-${++tempSeq}`;
+export const tempId = (p: string) => `${p}-${Date.now()}-${++tempSeq}`;
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const { workspaceId } = useWorkspace();
@@ -124,24 +149,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const conversationId = useRef<string | null>(null);
   const opener = useRef<() => void>(() => {});
   const abortRef = useRef<AbortController | null>(null);
+  const voiceNotifier = useRef<((text: string) => void) | null>(null);
 
   const invalidate = useCallback(
     () => void qc.invalidateQueries({ queryKey: ['ws', workspaceId] }),
     [qc, workspaceId],
   );
 
-  // histórico da conversa web mais recente do workspace
+  // histórico da conversa web mais recente, junto com o que passou pelo WhatsApp (avisos e respostas)
   useEffect(() => {
     if (!workspaceId) return;
     let alive = true;
     setLoading(true);
     setMessages([]);
     conversationId.current = null;
-    api<{ conversationId: string | null; messages: ChatMessageDTO[] }>('/api/chat/history?limit=60')
+    api<{ conversationId: string | null; messages: ChatMessageDTO[] }>('/api/chat/history?limit=60&scope=all')
       .then((r) => {
         if (!alive) return;
-        conversationId.current = r.conversationId;
-        setMessages(r.messages.map(fromDTO));
+        conversationId.current ??= r.conversationId;
+        // mensagens enviadas antes de o histórico chegar ficam depois dele
+        setMessages((sent) => {
+          const old = r.messages.map(fromDTO).filter((h) => !sent.some((m) => m.id === h.id));
+          return [...old, ...sent];
+        });
       })
       .catch(() => {})
       .finally(() => alive && setLoading(false));
@@ -234,6 +264,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                   drafts: [...m.drafts.filter((d) => d.id !== e.draft.id), e.draft],
                 }));
                 break;
+              case 'visual':
+                patch(asstId, (m) => ({
+                  ...m,
+                  visuals: [...(m.visuals ?? []).filter((v) => v.type !== e.visual.type), e.visual],
+                }));
+                break;
               case 'confirmed':
                 changed = true;
                 markDraft(e.draftId, 'confirmed');
@@ -272,6 +308,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       try {
         const r = await api<CommitResult>(`/api/drafts/${id}/confirm`, { method: 'POST', body: {} });
         markDraft(id, 'confirmed');
+        voiceNotifier.current?.(`O usuário confirmou na tela a prévia ${id}: ${r.summary}`);
         setMessages((ms) => [
           ...ms,
           {
@@ -306,6 +343,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       try {
         await api(`/api/drafts/${id}/cancel`, { method: 'POST', body: {} });
         markDraft(id, 'cancelled');
+        voiceNotifier.current?.(`O usuário cancelou na tela a prévia ${id}. Nada foi gravado.`);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Não foi possível cancelar.');
       } finally {
@@ -345,6 +383,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     opener.current = fn;
   }, []);
 
+  const appendMessage = useCallback((m: UiMessage) => setMessages((ms) => [...ms, m]), []);
+  const removeMessage = useCallback((id: string) => setMessages((ms) => ms.filter((m) => m.id !== id)), []);
+  const getConversationId = useCallback(() => conversationId.current, []);
+  const setConversationId = useCallback((id: string) => {
+    conversationId.current = id;
+  }, []);
+  const registerVoiceNotifier = useCallback((fn: ((text: string) => void) | null) => {
+    voiceNotifier.current = fn;
+  }, []);
+
   const value = useMemo<ChatCtx>(
     () => ({
       messages,
@@ -365,6 +413,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       openChat,
       registerOpener,
       busyDrafts,
+      appendMessage,
+      patchMessage: patch,
+      removeMessage,
+      markDraft,
+      invalidate,
+      getConversationId,
+      setConversationId,
+      registerVoiceNotifier,
     }),
     [
       messages,
@@ -382,6 +438,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       openChat,
       registerOpener,
       busyDrafts,
+      appendMessage,
+      patch,
+      removeMessage,
+      markDraft,
+      invalidate,
+      getConversationId,
+      setConversationId,
+      registerVoiceNotifier,
     ],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

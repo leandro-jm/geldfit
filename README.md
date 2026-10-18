@@ -1,13 +1,13 @@
 # Saúde Financeira
 
-App multiusuário de planejamento financeiro pessoal em que tudo acontece por chat, na web e no WhatsApp. O usuário lança e consulta conversando ou enviando extratos, faturas e notas de corretagem; o agente extrai, mostra uma prévia e só grava depois da confirmação. Especificação completa em [docs/PRD.md](docs/PRD.md).
+App multiusuário de planejamento financeiro pessoal em que tudo acontece por chat, na web e no WhatsApp. O usuário lança e consulta conversando ou enviando extratos, faturas e notas de corretagem; o agente extrai, mostra uma prévia e só grava depois da confirmação. Especificação completa em [docs/PRD.md](docs/PRD.md); concorrentes, tendências e diferenciais em [docs/ANALISE-MERCADO.md](docs/ANALISE-MERCADO.md).
 
 ## Arquitetura
 
 ```
 apps/web        React + Vite (PWA), Tailwind + shadcn/ui, ECharts, TanStack Query
 apps/api        Fastify: Better Auth, orquestrador do agente, REST, SSE, webhook WhatsApp, LGPD
-apps/worker     lembretes, recálculo da projeção, recorrências, dados de mercado, insights, expurgo
+apps/worker     lembretes, recálculo da projeção, recorrências, calendário anual, dados de mercado, insights, expurgo
 packages/shared tipos e regras de domínio (dinheiro em centavos, parser pt-BR, faturas)
 packages/llm    interface de LLM agnóstica + adaptador Anthropic + provedor fake (regras)
 packages/db     Kysely + withUserContext (aplica a RLS do Postgres por usuário)
@@ -22,7 +22,7 @@ Decisões que diferem do PRD original:
 | --- | --- | --- |
 | Supabase (Postgres, Auth, Storage, Realtime) | Postgres puro, Better Auth, disco local criptografado, SSE com `LISTEN/NOTIFY` | Pedido do produto |
 | WhatsApp Business Cloud API | Evolution API (não oficial) atrás da interface `MessagingChannel` | Pedido do produto; trocar por Cloud API é um novo adaptador |
-| Áudio (transcrição) | Fora desta versão | Provedor de transcrição em aberto |
+| Áudio (transcrição) | Ditado e áudio do WhatsApp por endpoint compatível com OpenAI (`TRANSCRIBE_*`); conversa por voz em tempo real com OpenAI Realtime (`REALTIME_*`) | O navegador fala com a OpenAI por WebRTC com segredo efêmero; ferramentas, prévias e histórico passam pela API com as mesmas regras do chat |
 | RF-19 Open Finance | Fora | Fase futura no PRD |
 
 ## Rodando localmente
@@ -41,6 +41,7 @@ pnpm dev                        # API :4100, worker e web :5173
 - Web: http://localhost:5173 (o Vite faz proxy de `/api` para a API).
 - E-mails (verificação, convites, lembretes de fallback): Mailpit em http://localhost:8026.
 - Sem `ANTHROPIC_API_KEY`, o agente roda em **modo demonstração** (regras determinísticas): entende frases como "paguei 230 de luz no BB ontem", "comprei uma TV de 3.600 em 10x no cartão Santander", "todo dia 5 entra 8.500 de salário no BB", "quanto sobra em dezembro?", "desfaz". Com a chave, usa `LLM_MODEL_SMALL` (padrão `claude-haiku-5-5`) para lançamentos simples e `LLM_MODEL_LARGE` (padrão `claude-opus-5-5`) para anexos, análises e simulações. Nos modelos que aceitam, o fallback server-side por recusa vem habilitado.
+- Chaves e modelos de IA (LLM, transcrição e voz) também podem ser definidos pela tela, em **Configurações → Inteligência artificial**. Só aparece para os e-mails listados em `ADMIN_EMAILS`. O valor salvo ali (cifrado no banco) substitui o `.env` e vale para API e worker em até 30 s, sem reiniciar. A seção traz o passo a passo para criar a chave em cada provedor.
 
 ### WhatsApp (Evolution API)
 
@@ -52,6 +53,12 @@ pnpm whatsapp:setup                         # cria a instância, aponta o webhoo
 Escaneie o QR com o WhatsApp do número do app. Cada usuário vincula o próprio número em **Configurações → WhatsApp** (código de 6 dígitos enviado pelo próprio WhatsApp). Números não vinculados recebem só o convite de cadastro. Confirmações de prévias são por resposta numerada (1 Confirmar · 2 Editar · 3 Cancelar) ou "sim"/"não".
 
 A Evolution API é não oficial: há risco de bloqueio do número pela Meta. Para produção em escala, implemente `MessagingChannel` com a Cloud API (templates aprovados e janela de 24 h).
+
+### App no celular e notificações (PWA)
+
+O web é um PWA: no Android/desktop aparece **Configurações → App e notificações → Instalar**; no iPhone, Safari → Compartilhar → **Adicionar à Tela de Início**. Instalar exige HTTPS (em dev, `localhost` vale).
+
+Para notificações push, gere as chaves com `npx web-push generate-vapid-keys` e preencha `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `VAPID_SUBJECT` (API e worker). Cada aparelho ativa em **Configurações → App e notificações**. Os lembretes seguem a ordem WhatsApp → push → e-mail; sugestões do assistente sem WhatsApp ficam na caixa da web e avisam por push. No iPhone (iOS 16.4+), o push só funciona com o app aberto pela Tela de Início.
 
 ### Dados de mercado
 
@@ -72,6 +79,7 @@ Os testes cobrem, entre outros, os critérios de aceite do PRD:
 - Agente: draft → confirmação → auditoria → desfazer; parcelado; recorrência; conciliação de conta recorrente; leitor sem escrita; filtro CVM 19.
 - Importação: CSV e OFX (sem LLM), deduplicação na reimportação, nota de corretagem com 5 operações (taxas e preço médio), arquivo criptografado em repouso e URL assinada.
 - Worker: lembrete "vence amanhã. Já pagou?" → "sim" registra o pagamento; alerta de piso no máximo 1 por dia; opt-out; expurgo LGPD.
+- Calendário anual: IPVA em 3 parcelas, IPTU, seguro anual, reajuste do plano de saúde e 13º estimado pelo salário aprendidos do histórico; aviso 60 dias antes e "sim" coloca o item na projeção; item confirmado sai da média do gasto variável.
 
 ## Deploy (Docker / Portainer)
 

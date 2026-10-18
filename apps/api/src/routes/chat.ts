@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { withUserContext } from '@sf/db';
-import type { ChatMessageDTO, ChatStreamEvent } from '@sf/shared';
+import type { ChatMessageDTO, ChatStreamEvent, ChatVisual } from '@sf/shared';
 import type { AppContext } from '../context.js';
 import { AppError, notFound } from '../lib/errors.js';
 import { actorOf, inActor, openSSE } from '../lib/http.js';
@@ -29,6 +29,7 @@ export async function chatRoutes(
         pageContext: z
           .object({ panel: z.string().max(60), detail: z.string().max(300).optional() })
           .nullish(),
+        voice: z.boolean().optional(),
       })
       .parse(req.body);
     const actor = actorOf(req);
@@ -63,6 +64,8 @@ export async function chatRoutes(
       .object({
         conversationId: z.string().uuid().optional(),
         limit: z.coerce.number().int().min(1).max(200).default(60),
+        // all: junta a conversa do WhatsApp (lembretes, sugestões e respostas) ao histórico da web
+        scope: z.enum(['web', 'all']).default('web'),
       })
       .parse(req.query);
     return inActor(app, req, async (tx, a) => {
@@ -76,11 +79,23 @@ export async function chatRoutes(
             .where('channel', '=', 'web')
             .orderBy('lastMessageAt', 'desc')
             .executeTakeFirst();
-      if (!conv) return { conversationId: null, messages: [] };
+      const wa =
+        q.scope === 'all' && !q.conversationId
+          ? await tx
+              .selectFrom('conversations')
+              .select('id')
+              .where('workspaceId', '=', a.workspaceId)
+              .where('userId', '=', a.userId)
+              .where('channel', '=', 'whatsapp')
+              .orderBy('lastMessageAt', 'desc')
+              .executeTakeFirst()
+          : null;
+      const convIds = [conv?.id, wa?.id].filter((x): x is string => Boolean(x));
+      if (!convIds.length) return { conversationId: null, messages: [] };
       const rows = await tx
         .selectFrom('messages')
-        .select(['id', 'role', 'content', 'parts', 'createdAt'])
-        .where('conversationId', '=', conv.id)
+        .select(['id', 'role', 'content', 'parts', 'createdAt', 'conversationId'])
+        .where('conversationId', 'in', convIds)
         .where('role', 'in', ['user', 'assistant'])
         .orderBy('createdAt', 'desc')
         .limit(q.limit)
@@ -105,6 +120,7 @@ export async function chatRoutes(
             id?: string;
             filename?: string;
             mime?: string;
+            visual?: ChatVisual;
           }>) ?? [];
         return {
           id: r.id,
@@ -119,9 +135,13 @@ export async function chatRoutes(
             .map((p) => drafts.find((d) => d.id === p.draftId))
             .filter(Boolean)
             .map((d) => toDraftDTO(d!)),
+          visuals: parts.filter((p) => p.type === 'visual' && p.visual).map((p) => p.visual!),
+          ...(parts.some((p) => p.type === 'voice') ? { voice: true } : {}),
+          ...(wa ? { channel: r.conversationId === wa.id ? ('whatsapp' as const) : ('web' as const) } : {}),
+          ...(parts.some((p) => p.type === 'proactive' || p.type === 'nudge') ? { proactive: true } : {}),
         };
       });
-      return { conversationId: conv.id, messages };
+      return { conversationId: conv?.id ?? null, messages };
     });
   });
 
@@ -137,12 +157,27 @@ export async function chatRoutes(
 
   // --- Drafts -------------------------------------------------------------------------------
   f.get('/api/drafts', pre, async (req) => {
-    const q = z.object({ status: z.enum(['pending', 'confirmed', 'cancelled', 'expired']).default('pending'), kind: z.string().max(40).optional() }).parse(req.query);
+    const q = z
+      .object({
+        status: z.enum(['pending', 'confirmed', 'cancelled', 'expired']).default('pending'),
+        kind: z.string().max(40).optional(),
+      })
+      .parse(req.query);
     return inActor(app, req, async (tx, a) => {
-      let qb = tx.selectFrom('drafts').select(['id', 'kind', 'status', 'preview', 'expiresAt', 'createdAt', 'conversationId']).where('workspaceId', '=', a.workspaceId).where('status', '=', q.status).orderBy('createdAt', 'desc').limit(100);
+      let qb = tx
+        .selectFrom('drafts')
+        .select(['id', 'kind', 'status', 'preview', 'expiresAt', 'createdAt', 'conversationId'])
+        .where('workspaceId', '=', a.workspaceId)
+        .where('status', '=', q.status)
+        .orderBy('createdAt', 'desc')
+        .limit(100);
       if (q.status === 'pending') qb = qb.where('expiresAt', '>', new Date());
       if (q.kind) qb = qb.where('kind', '=', q.kind);
-      return (await qb.execute()).map((d) => ({ ...toDraftDTO(d), createdAt: new Date(d.createdAt).toISOString(), conversationId: d.conversationId }));
+      return (await qb.execute()).map((d) => ({
+        ...toDraftDTO(d),
+        createdAt: new Date(d.createdAt).toISOString(),
+        conversationId: d.conversationId,
+      }));
     });
   });
 

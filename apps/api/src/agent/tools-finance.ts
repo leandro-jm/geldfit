@@ -1147,6 +1147,9 @@ const REMINDER_KINDS = [
   'import_reminder',
   'budget_alert',
   'insights',
+  'seasonal',
+  'nudge',
+  'question',
 ] as const;
 
 export const setReminderPrefsTool = defineTool({
@@ -1207,6 +1210,9 @@ export const setReminderPrefsTool = defineTool({
       import_reminder: 'lembrete de importação',
       budget_alert: 'orçamento',
       insights: 'insights',
+      seasonal: 'calendário anual (IPVA, IPTU, 13º...)',
+      nudge: 'sugestões do assistente',
+      question: 'perguntas do assistente',
     };
     const reminderPrefs = [
       ...(input.disable ?? []).map((k) => ({ kind: k, enabled: false })),

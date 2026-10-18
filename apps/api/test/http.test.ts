@@ -3,7 +3,15 @@ import type { FastifyInstance } from 'fastify';
 import { buildServer } from '../src/server.js';
 import type { AppContext } from '../src/context.js';
 import { hasDb, makeApp, setupEnv } from './helpers.js';
-import { clearTestPtax, insertPtax, type TestEnv } from '../../../db/tests/helpers.js';
+import { sql } from '@sf/db';
+import { addMonths, startOfMonth, type CalendarDTO, type ProjectionDTO } from '@sf/shared';
+import {
+  clearTestPtax,
+  insertAccount,
+  insertPtax,
+  insertTx,
+  type TestEnv,
+} from '../../../db/tests/helpers.js';
 
 describe.skipIf(!hasDb)('HTTP', () => {
   let env: TestEnv;
@@ -28,7 +36,7 @@ describe.skipIf(!hasDb)('HTTP', () => {
     const body = me.json() as { user: { id: string }; workspaces: Array<{ id: string; role: string }> };
     env.users.push(body.user.id);
     env.workspaces.push(...body.workspaces.map((w) => w.id));
-    return { cookie, userId: body.user.id, ws: body.workspaces[0]!.id };
+    return { cookie, userId: body.user.id, ws: body.workspaces[0]!.id, email };
   }
 
   beforeAll(async () => {
@@ -346,6 +354,73 @@ describe.skipIf(!hasDb)('HTTP', () => {
     const parts = (await txs()).filter((t) => t.description.startsWith('TV ('));
     expect(parts).toHaveLength(3);
     expect(parts.reduce((s, t) => s + t.amountCents, 0)).toBe(30_000);
+
+    // renda comprometida: as 3 parcelas aparecem, mas sem salário recorrente não há percentual
+    const commit = await server.inject({
+      method: 'GET',
+      url: '/api/dashboard/commitment?months=24',
+      headers: { cookie: a.cookie },
+    });
+    expect(commit.statusCode).toBe(200);
+    const c = commit.json() as { months: Array<{ committedCents: number; pct: number | null }> };
+    expect(c.months).toHaveLength(24);
+    expect(c.months.reduce((s, m) => s + m.committedCents, 0)).toBe(30_000);
+    expect(c.months.every((m) => m.pct === null)).toBe(true);
+  });
+
+  it('calendário anual: detecta do histórico, confirma pela tela e aparece na projeção', async () => {
+    const a = await signUp('Duda');
+    const today = (await sql<{ d: string }>`select ws_today(${a.ws}::uuid)::text as d`.execute(env.owner.db))
+      .rows[0]!.d;
+    const paidAt = addMonths(today, -8);
+    const acc = await insertAccount(env.owner.db, a.ws, {
+      openingBalanceCents: 500_000,
+      openingDate: addMonths(today, -9),
+    });
+    await insertTx(env.owner.db, a.ws, {
+      accountId: acc,
+      date: paidAt,
+      amountCents: 150_000,
+      direction: 'out',
+      description: 'IPTU cota única',
+    });
+    const headers = { cookie: a.cookie };
+    const det = await server.inject({ method: 'POST', url: '/api/calendar/detect', headers });
+    expect(det.statusCode).toBe(200);
+    expect(det.json()).toMatchObject({ created: 1 });
+
+    const cal = (await server.inject({ method: 'GET', url: '/api/calendar', headers })).json() as CalendarDTO;
+    const iptu = cal.items.find((i) => i.key === 'iptu')!;
+    expect(iptu).toMatchObject({ status: 'suggested', confidence: 'media' });
+    expect(cal.occurrences).toMatchObject([{ key: 'iptu', amountCents: 150_000, inProjection: false }]);
+
+    const ok = await server.inject({
+      method: 'POST',
+      url: '/api/actions',
+      headers: { ...headers, 'content-type': 'application/json' },
+      payload: { kind: 'seasonal', payload: { mode: 'confirm', id: iptu.id, fields: {} } },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ summary: 'Calendário atualizado.' });
+
+    const proj = (
+      await server.inject({ method: 'GET', url: '/api/projection', headers })
+    ).json() as ProjectionDTO;
+    const month = proj.months.find((m) => m.month === startOfMonth(addMonths(paidAt, 12)))!;
+    expect(month.seasonal).toMatchObject([{ key: 'iptu', inProjection: true }]);
+
+    // leitor não dispara a detecção
+    const v = await signUp('Vera');
+    await env.owner.db
+      .insertInto('memberships')
+      .values({ workspaceId: a.ws, userId: v.userId, role: 'viewer' })
+      .execute();
+    const denied = await server.inject({
+      method: 'POST',
+      url: '/api/calendar/detect',
+      headers: { cookie: v.cookie, 'x-workspace-id': a.ws },
+    });
+    expect(denied.statusCode).toBe(403);
   });
 
   it('webhook exige o segredo e download exige assinatura', async () => {
@@ -378,5 +453,113 @@ describe.skipIf(!hasDb)('HTTP', () => {
     const exp = await server.inject({ method: 'GET', url: '/api/export', headers: { cookie: a.cookie } });
     expect(exp.statusCode).toBe(200);
     expect(JSON.parse(exp.body)).toHaveProperty('transactions');
+  });
+
+  it('configurações de IA: só admin, segredo cifrado e aplicado sem reiniciar', async () => {
+    const admin = await signUp('Admin');
+    const user = await signUp('Comum');
+    app.config.ADMIN_EMAILS = [admin.email.toLowerCase()];
+    const json = (cookie: string) => ({ cookie, 'content-type': 'application/json' });
+    const KEYS = ['TRANSCRIBE_API_KEY', 'LLM_MODEL_LARGE', 'VOICE_PROVIDER'];
+    try {
+      // usuário comum: não vê nem altera
+      expect(
+        (
+          await server.inject({
+            method: 'GET',
+            url: '/api/admin/ai-settings',
+            headers: { cookie: user.cookie },
+          })
+        ).statusCode,
+      ).toBe(403);
+      const denied = await server.inject({
+        method: 'PUT',
+        url: '/api/admin/ai-settings',
+        headers: json(user.cookie),
+        payload: { LLM_MODEL_LARGE: 'claude-sonnet-5-5' },
+      });
+      expect(denied.statusCode).toBe(403);
+      const meUser = await server.inject({ method: 'GET', url: '/api/me', headers: { cookie: user.cookie } });
+      expect(meUser.json().isAdmin).toBe(false);
+      const meAdmin = await server.inject({
+        method: 'GET',
+        url: '/api/me',
+        headers: { cookie: admin.cookie },
+      });
+      expect(meAdmin.json().isAdmin).toBe(true);
+
+      // valor inválido
+      const bad = await server.inject({
+        method: 'PUT',
+        url: '/api/admin/ai-settings',
+        headers: json(admin.cookie),
+        payload: { VOICE_PROVIDER: 'outro' },
+      });
+      expect(bad.statusCode).toBe(400);
+
+      const secret = 'sk-teste-transcricao-9876';
+      const put = await server.inject({
+        method: 'PUT',
+        url: '/api/admin/ai-settings',
+        headers: json(admin.cookie),
+        payload: { TRANSCRIBE_API_KEY: secret, LLM_MODEL_LARGE: 'claude-sonnet-5-5', VOICE_PROVIDER: 'live' },
+      });
+      expect(put.statusCode).toBe(200);
+      expect(put.body).not.toContain(secret);
+      const field = (body: { fields: Array<{ key: string }> }, key: string) =>
+        body.fields.find((f) => f.key === key);
+      expect(field(put.json(), 'TRANSCRIBE_API_KEY')).toMatchObject({
+        isSet: true,
+        last4: '9876',
+        source: 'db',
+        value: null,
+      });
+      expect(field(put.json(), 'LLM_MODEL_LARGE')).toMatchObject({
+        value: 'claude-sonnet-5-5',
+        source: 'db',
+      });
+
+      // cifrado no banco
+      const row = await env.owner.db
+        .selectFrom('appSettings')
+        .selectAll()
+        .where('key', '=', 'TRANSCRIBE_API_KEY')
+        .executeTakeFirstOrThrow();
+      expect(row.secret).toBe(true);
+      expect(row.value).not.toContain(secret);
+
+      // aplicado na hora: transcrição ligada, modelo e motor de voz trocados
+      expect(app.transcriber).not.toBeNull();
+      expect(app.config.LLM_MODEL_LARGE).toBe('claude-sonnet-5-5');
+      const me = await server.inject({ method: 'GET', url: '/api/me', headers: { cookie: admin.cookie } });
+      expect(me.json().features).toMatchObject({ audio: true, voiceProvider: 'live' });
+
+      // remover volta para o .env/padrão
+      const reset = await server.inject({
+        method: 'PUT',
+        url: '/api/admin/ai-settings',
+        headers: json(admin.cookie),
+        payload: { TRANSCRIBE_API_KEY: null, LLM_MODEL_LARGE: '', VOICE_PROVIDER: null },
+      });
+      expect(reset.statusCode).toBe(200);
+      expect(field(reset.json(), 'LLM_MODEL_LARGE')).toMatchObject({
+        source: process.env.LLM_MODEL_LARGE ? 'env' : 'default',
+      });
+      expect(app.config.VOICE_PROVIDER).toBe(process.env.VOICE_PROVIDER ?? 'realtime');
+      if (!process.env.TRANSCRIBE_API_KEY && !process.env.TRANSCRIBE_URL) expect(app.transcriber).toBeNull();
+
+      // teste de conexão sem chave da Anthropic (modo demonstração)
+      const test = await server.inject({
+        method: 'POST',
+        url: '/api/admin/ai-settings/test',
+        headers: json(admin.cookie),
+        payload: { group: 'llm' },
+      });
+      expect(test.statusCode).toBe(200);
+      expect(test.json()).toMatchObject({ ok: false, provider: 'fake' });
+    } finally {
+      await env.owner.db.deleteFrom('appSettings').where('key', 'in', KEYS).execute();
+      app.config.ADMIN_EMAILS = [];
+    }
   });
 });

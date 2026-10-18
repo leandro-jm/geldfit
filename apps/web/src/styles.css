@@ -48,6 +48,13 @@
   --chart-out: #d64545;
   --chart-floor: #d03b3b;
 
+  /* moeda do orbe da conversa por voz */
+  --coin-1: #fde68a;
+  --coin-2: #f2b632;
+  --coin-3: #b7791f;
+  --coin-ink: #7a4a07;
+  --coin-glow: rgb(242 182 50 / 0.45);
+
   --sidebar-w: 248px;
   --chat-w: 400px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -95,6 +102,11 @@
   --chart-in: #2fb36a;
   --chart-out: #e66767;
   --chart-floor: #e66767;
+  --coin-1: #fcd970;
+  --coin-2: #e0a526;
+  --coin-3: #9a6414;
+  --coin-ink: #5c3604;
+  --coin-glow: rgb(240 180 60 / 0.32);
 }
 
 @theme inline {
@@ -215,6 +227,164 @@
   30% {
     opacity: 1;
     transform: translateY(-2px);
+  }
+}
+
+/* -------------------------------------------------------------------------------------------
+ * Orbe da conversa por voz (moeda). --lvl (0..1) vem do nível do áudio, atualizado por rAF.
+ * ----------------------------------------------------------------------------------------- */
+.voice-orb {
+  --lvl: 0;
+}
+.voice-orb-glow {
+  background: radial-gradient(circle, var(--coin-glow) 0%, transparent 66%);
+  opacity: calc(0.35 + var(--lvl) * 0.9);
+  transform: scale(calc(0.85 + var(--lvl) * 0.35));
+}
+.voice-orb-coin {
+  perspective: 700px;
+  transform: scale(calc(1 + var(--lvl) * 0.08));
+  filter: drop-shadow(0 10px 22px rgb(var(--shadow-color) / 0.22));
+}
+.voice-orb-coin > svg {
+  transform-style: preserve-3d;
+}
+.voice-orb[data-state='connecting'] .voice-orb-coin > svg,
+.voice-orb[data-state='idle'] .voice-orb-coin > svg {
+  animation: coin-breathe 2.4s ease-in-out infinite;
+}
+.voice-orb[data-state='thinking'] .voice-orb-coin > svg {
+  animation: coin-flip 1.9s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+.voice-orb[data-state='error'] {
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
+.voice-orb-ripples {
+  transform: scale(calc(1 + var(--lvl) * 0.3));
+}
+.voice-orb-ripples > span {
+  position: absolute;
+  inset: 11%;
+  border-radius: 9999px;
+  border: 2px solid var(--coin-2);
+  opacity: 0;
+}
+.voice-orb[data-state='listening'] .voice-orb-ripples > span {
+  animation: coin-ripple 2.4s ease-out infinite;
+}
+.voice-orb-ripples > span:nth-child(2) {
+  animation-delay: 0.8s !important;
+}
+.voice-orb-ripples > span:nth-child(3) {
+  animation-delay: 1.6s !important;
+}
+
+.voice-orb-orbit {
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.voice-orb[data-state='thinking'] .voice-orb-orbit {
+  opacity: 1;
+  animation: coin-orbit 3.2s linear infinite;
+}
+.voice-orb-orbit > i {
+  position: absolute;
+  width: 11%;
+  height: 11%;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 30%, var(--coin-1), var(--coin-2) 60%, var(--coin-3));
+  box-shadow: 0 1px 3px rgb(var(--shadow-color) / 0.3);
+}
+.voice-orb-orbit > i:nth-child(1) {
+  top: 0;
+  left: 44.5%;
+}
+.voice-orb-orbit > i:nth-child(2) {
+  bottom: 12%;
+  left: 4%;
+  transform: scale(0.75);
+}
+.voice-orb-orbit > i:nth-child(3) {
+  bottom: 12%;
+  right: 4%;
+  transform: scale(0.6);
+}
+
+.voice-orb-mark {
+  transform-origin: 100px 100px;
+  transition: transform 0.35s ease;
+}
+.voice-orb[data-state='speaking'] .voice-orb-mark {
+  transform: translateY(-24px) scale(0.68);
+}
+.voice-orb-bars {
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.voice-orb[data-state='speaking'] .voice-orb-bars {
+  opacity: 1;
+}
+.voice-orb-bars rect {
+  transform: scaleY(calc(0.4 + var(--lvl) * var(--k) * 0.9));
+  transition: transform 90ms linear;
+}
+.voice-orb-shine {
+  opacity: 0;
+}
+.voice-orb[data-state='thinking'] .voice-orb-shine,
+.voice-orb[data-state='connecting'] .voice-orb-shine {
+  opacity: 1;
+  animation: coin-shine 1.9s ease-in-out infinite;
+}
+
+@keyframes coin-breathe {
+  0%,
+  100% {
+    transform: scale(0.97);
+  }
+  50% {
+    transform: scale(1.03);
+  }
+}
+@keyframes coin-flip {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(360deg);
+  }
+}
+@keyframes coin-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+@keyframes coin-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes coin-shine {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(300px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-orb-glow,
+  .voice-orb-coin,
+  .voice-orb-ripples,
+  .voice-orb-bars rect {
+    transform: none !important;
   }
 }
 

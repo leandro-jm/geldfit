@@ -56,6 +56,36 @@ export async function lgpdRoutes(f: FastifyInstance, app: AppContext, guards: { 
         recurrences: await pick('recurrences'),
         pensionPlans: await pick('pensionPlans'),
         pensionEntries: await pick('pensionEntries'),
+        retirementProfile: await tx
+          .selectFrom('retirementProfiles')
+          .selectAll()
+          .where('workspaceId', '=', ws)
+          .where('userId', '=', a.userId)
+          .executeTakeFirst(),
+        financialProfile: await tx
+          .selectFrom('userFinancialProfiles')
+          .selectAll()
+          .where('workspaceId', '=', ws)
+          .where('userId', '=', a.userId)
+          .executeTakeFirst(),
+        // memória do assistente: as do próprio usuário, em qualquer status (o que foi arquivado também)
+        agentMemories: await tx
+          .selectFrom('agentMemories')
+          .select([
+            'category',
+            'content',
+            'scope',
+            'status',
+            'source',
+            'sensitive',
+            'expiresAt',
+            'createdAt',
+            'updatedAt',
+          ])
+          .where('workspaceId', '=', ws)
+          .where('userId', '=', a.userId)
+          .orderBy('createdAt')
+          .execute(),
         trades: await pick('trades'),
         allocationTargets: await pick('allocationTargets'),
         goals: await pick('goals'),
@@ -152,6 +182,9 @@ export async function lgpdRoutes(f: FastifyInstance, app: AppContext, guards: { 
     void confirm;
     const userId = req.user!.id;
     await withUserContext(app.db, userId, async (tx) => {
+      // memória e perfil do assistente saem já (antes de deixar de ser membro e perder o acesso pela RLS)
+      await tx.deleteFrom('agentMemories').where('userId', '=', userId).execute();
+      await tx.deleteFrom('userFinancialProfiles').where('userId', '=', userId).execute();
       const mine = await tx
         .selectFrom('memberships')
         .select(['workspaceId', 'role'])
@@ -181,6 +214,7 @@ export async function lgpdRoutes(f: FastifyInstance, app: AppContext, guards: { 
           .execute();
       }
       await tx.deleteFrom('userChannels').where('userId', '=', userId).execute();
+      await tx.deleteFrom('pushSubscriptions').where('userId', '=', userId).execute();
     });
     // dados de login fora da RLS
     await app.db.deleteFrom('authSession').where('userId', '=', userId).execute();

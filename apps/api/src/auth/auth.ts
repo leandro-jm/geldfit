@@ -21,6 +21,19 @@ export function createAuth(opts: { config: Config; pool: pg.Pool; db: Db; mailer
     user: {
       modelName: 'auth_user',
       fields: { emailVerified: 'email_verified', createdAt: 'created_at', updatedAt: 'updated_at' },
+      // Troca de e-mail em Configurações. E-mail já verificado: confirmação pelo endereço atual antes de
+      // mudar. Ainda não verificado: muda na hora e o novo endereço recebe o link de verificação.
+      changeEmail: {
+        enabled: true,
+        updateEmailWithoutVerification: true,
+        sendChangeEmailConfirmation: async ({ user, newEmail, url }) => {
+          await mailer.send(
+            user.email,
+            'Confirme a troca de e-mail',
+            `Olá, ${user.name}! Recebemos um pedido para trocar o e-mail da sua conta para ${newEmail}. Para confirmar, acesse: ${url}\n\nSe não foi você, ignore esta mensagem.`,
+          );
+        },
+      },
     },
     session: {
       modelName: 'auth_session',

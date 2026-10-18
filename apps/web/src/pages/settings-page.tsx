@@ -24,6 +24,9 @@ import { Field, Input, Select } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { PageHeader } from '@/components/common/states';
+import { AccountSection } from './settings-account';
+import { AppSection } from './settings-app';
+import { AiSettingsSection } from './settings-ai';
 
 const ROLE_LABEL = { owner: 'Dono', member: 'Membro', viewer: 'Leitura' } as const;
 
@@ -41,6 +44,21 @@ const REMINDERS: Array<{ kind: string; label: string; hint: string }> = [
   },
   { kind: 'budget_alert', label: 'Orçamentos', hint: 'Quando um orçamento passa do limite de alerta' },
   { kind: 'insights', label: 'Insights da carteira', hint: 'Novos insights no resumo' },
+  {
+    kind: 'seasonal',
+    label: 'Calendário anual',
+    hint: 'IPVA, IPTU, matrícula, 13º e reajustes, 30 a 60 dias antes',
+  },
+  {
+    kind: 'nudge',
+    label: 'Sugestões do assistente',
+    hint: 'Metas, reserva e orçamentos propostos a partir dos seus dados (no máximo 1 por dia)',
+  },
+  {
+    kind: 'question',
+    label: 'Perguntas do assistente',
+    hint: 'De vez em quando, uma pergunta rápida para decidir algo ou completar seu perfil',
+  },
 ];
 
 function Section({
@@ -776,22 +794,27 @@ function DataSection() {
 }
 
 const TOC = [
+  ['conta', 'Minha conta'],
   ['workspace', 'Workspace'],
   ['membros', 'Membros'],
   ['whatsapp', 'WhatsApp'],
+  ['app', 'App e notificações'],
   ['lembretes', 'Lembretes'],
   ['projecao', 'Projeção'],
   ['dados', 'Dados'],
 ] as const;
 
 export function SettingsPage() {
+  const isAdmin = useMe().data?.isAdmin === true;
+  // a seção de IA vale para o servidor inteiro: só para admins, logo antes de "Dados"
+  const toc = isAdmin ? [...TOC.slice(0, -1), ['ia', 'Inteligência artificial'] as const, TOC.at(-1)!] : TOC;
   return (
     <div>
       <PageHeader title="Configurações" />
       <div className="grid gap-6 @min-[1000px]:grid-cols-[180px_minmax(0,1fr)]">
         <nav aria-label="Seções" className="hidden @min-[1000px]:block">
           <ul className="sticky top-24 space-y-0.5">
-            {TOC.map(([id, label]) => (
+            {toc.map(([id, label]) => (
               <li key={id}>
                 <a
                   href={`#${id}`}
@@ -804,10 +827,13 @@ export function SettingsPage() {
           </ul>
         </nav>
         <div className="min-w-0 space-y-4">
+          <AccountSection />
           <WorkspaceSection />
           <MembersSection />
           <WhatsAppSection />
+          <AppSection />
           <PreferencesSections />
+          {isAdmin ? <AiSettingsSection /> : null}
           <DataSection />
         </div>
       </div>

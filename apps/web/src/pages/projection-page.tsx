@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { monthLabel } from '@sf/shared';
+import { CalendarDays } from 'lucide-react';
+import { monthLabel, type SeasonalOccurrenceDTO } from '@sf/shared';
 import { useFilters } from '@/lib/filters';
 import { useAccounts, useProjection } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -11,6 +12,22 @@ import { Panel, UpdatedAt } from '@/components/common/panel';
 import { EmptyState, PageHeader } from '@/components/common/states';
 import { ProjectionChart } from '@/components/charts/charts';
 import { MonthDetail, ProjectionLegend } from './dashboard/panels';
+
+/** Marca o mês com itens do calendário anual (âmbar quando há item ainda fora da projeção). */
+function SeasonalMark({ items }: { items?: SeasonalOccurrenceDTO[] }) {
+  const list = (items ?? []).filter((o) => !o.paid && o.kind !== 'info');
+  if (!list.length) return null;
+  const pending = list.some((o) => !o.inProjection);
+  const label = `Calendário anual: ${list.map((o) => o.label).join(', ')}${pending ? ' (há item a confirmar)' : ''}`;
+  return (
+    <span role="img" aria-label={label} title={label} className="ml-1.5 inline-flex align-[-2px]">
+      <CalendarDays
+        className={cn('size-3.5', pending ? 'text-warning' : 'text-muted-foreground')}
+        aria-hidden
+      />
+    </span>
+  );
+}
 
 export function ProjectionPage() {
   const { accountId, setAccountId } = useFilters();
@@ -159,6 +176,7 @@ export function ProjectionPage() {
                   >
                     <th scope="row" className="whitespace-nowrap px-3 py-2 text-left font-medium capitalize">
                       {monthLabel(m.month)}
+                      <SeasonalMark items={m.seasonal} />
                       {m.belowFloor ? (
                         <Badge tone="negative" className="ml-2">
                           piso
@@ -201,7 +219,10 @@ export function ProjectionPage() {
             <li key={m.month}>
               <Card className={cn('p-3.5', m.belowFloor && 'border-negative/40')}>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[14px] font-semibold capitalize">{monthLabel(m.month, true)}</span>
+                  <span className="text-[14px] font-semibold capitalize">
+                    {monthLabel(m.month, true)}
+                    <SeasonalMark items={m.seasonal} />
+                  </span>
                   <Money
                     cents={m.closingCents}
                     tone={m.closingCents < 0 ? 'negative' : undefined}

@@ -1,6 +1,7 @@
 import {
   ArrowLeftRight,
   CalendarClock,
+  CalendarDays,
   Download,
   Goal,
   LayoutDashboard,
@@ -9,6 +10,7 @@ import {
   Settings,
   Wallet,
   Briefcase,
+  Sparkles,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -19,8 +21,10 @@ export type AppPath =
   | '/contas'
   | '/carteira'
   | '/recorrencias'
+  | '/calendario'
   | '/metas'
   | '/configuracoes'
+  | '/assistente'
   | '/previdencia'
   | '/importacoes'
   | '/mais'
@@ -40,10 +44,12 @@ export const NAV: NavItem[] = [
   { to: '/carteira', label: 'Carteira', icon: Briefcase },
   { to: '/recorrencias', label: 'Recorrências', icon: CalendarClock },
   { to: '/metas', label: 'Metas e Orçamentos', icon: Goal },
+  { to: '/assistente', label: 'Assistente', icon: Sparkles },
   { to: '/configuracoes', label: 'Configurações', icon: Settings },
 ];
 
 export const NAV_EXTRA: NavItem[] = [
+  { to: '/calendario', label: 'Calendário anual', icon: CalendarDays },
   { to: '/previdencia', label: 'Previdência', icon: PiggyBank },
   { to: '/importacoes', label: 'Importações', icon: Download },
 ];

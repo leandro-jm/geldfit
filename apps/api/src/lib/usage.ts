@@ -26,6 +26,8 @@ export async function recordUsage(
           outputTokens: u.outputTokens,
           cacheReadTokens: u.cacheReadTokens,
           costMicroUsd: u.costMicroUsd,
+          webSearchRequests: u.webSearchRequests ?? 0,
+          webFetchRequests: u.webFetchRequests ?? 0,
           latencyMs: latencyMs ?? null,
         })
         .execute(),

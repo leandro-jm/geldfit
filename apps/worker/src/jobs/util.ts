@@ -1,6 +1,7 @@
 import { sql, type Db, withUserContext } from '@sf/db';
 import type { DraftDTO } from '@sf/shared';
 import type { Actor, AppContext } from '@sf/api/context';
+import type { PushMessage } from '@sf/api/lib/push';
 
 export interface WorkspaceRow {
   id: string;
@@ -52,6 +53,7 @@ export async function postAssistantMessage(
   conversationId: string,
   text: string,
   drafts: DraftDTO[] = [],
+  extraParts: Array<Record<string, unknown>> = [],
 ) {
   await withUserContext(app.db, actor.userId, async (tx) => {
     await tx
@@ -61,7 +63,11 @@ export async function postAssistantMessage(
         conversationId,
         role: 'assistant',
         content: text,
-        parts: JSON.stringify(drafts.map((d) => ({ type: 'draft', draftId: d.id }))),
+        parts: JSON.stringify([
+          { type: 'proactive' },
+          ...drafts.map((d) => ({ type: 'draft', draftId: d.id })),
+          ...extraParts,
+        ]),
       })
       .execute();
     await tx
@@ -70,4 +76,15 @@ export async function postAssistantMessage(
       .where('id', '=', conversationId)
       .execute();
   });
+}
+
+/** Web Push para os aparelhos do usuário; devolve quantos receberam (0 sem push ou em erro). */
+export async function notifyPush(app: AppContext, userId: string, msg: PushMessage): Promise<number> {
+  if (!app.push) return 0;
+  try {
+    return await app.push.sendToUser(userId, msg);
+  } catch (err) {
+    app.log.warn({ err }, 'push falhou');
+    return 0;
+  }
 }

@@ -305,3 +305,155 @@ describe.skipIf(!hasDb)('Worker: alerta de conta que vai ficar negativa', () => 
     expect(await env.as(userId, (tx) => accountShortfalls(tx, ws, today))).toEqual([]);
   });
 });
+
+describe.skipIf(!hasDb)('Worker: calendário anual', () => {
+  let env: TestEnv;
+  let app: AppContext;
+  let wa: FakeWhatsApp;
+  let ctx: WorkerContext;
+  let userId: string;
+  let ws: string;
+  const phone = `5548${Math.floor(100000000 + Math.random() * 899999999)}`;
+
+  beforeAll(async () => {
+    env = setupEnv();
+    wa = new FakeWhatsApp();
+    app = { ...makeApp(env), whatsapp: wa };
+    ctx = { app, sys: env.owner.db, close: async () => {} };
+    userId = await env.createUser('Bia');
+    ws = await env.createWorkspace(userId, 'Casa Bia');
+    await env.owner.db
+      .updateTable('workspaceSettings')
+      .set({ reminderTime: '00:00', quietStart: '00:00', quietEnd: '00:00' })
+      .where('workspaceId', '=', ws)
+      .execute();
+    await env.owner.db
+      .insertInto('userChannels')
+      .values({ userId, kind: 'whatsapp', address: phone, verifiedAt: new Date(), defaultWorkspaceId: ws })
+      .execute();
+  });
+  afterAll(async () => env?.cleanup());
+
+  it('avisa 60 dias antes, "sim" confirma e o item entra na projeção', async () => {
+    const today = (await sql<{ d: string }>`select ws_today(${ws}::uuid)::text as d`.execute(env.owner.db))
+      .rows[0]!.d;
+    const due = addDays(today, 40);
+    const [y, m, d] = due.split('-').map(Number) as [number, number, number];
+    const item = (lead: number, key: string, label: string) =>
+      env.owner.db
+        .insertInto('seasonalItems')
+        .values({
+          workspaceId: ws,
+          key,
+          label,
+          kind: 'expense',
+          direction: 'out',
+          schedule: JSON.stringify([{ month: m, day: d, amountCents: 234_000 }]),
+          evidence: JSON.stringify([{ year: y - 1, totalCents: 220_000, months: [m], n: 1 }]),
+          leadDays: lead,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+    const ipva = await item(60, 'ipva', 'IPVA');
+    const later = await item(30, 'annual:seguro auto porto', 'Seguro Auto Porto');
+
+    await scheduleReminders(ctx);
+    await scheduleReminders(ctx); // idempotente
+    const rem = await env.owner.db
+      .selectFrom('reminders')
+      .select(['dedupeKey', 'targetId'])
+      .where('userId', '=', userId)
+      .where('kind', '=', 'seasonal')
+      .execute();
+    // o seguro (30 dias de antecedência) ainda não; o IPVA (60) sim, uma vez
+    expect(rem).toEqual([{ dedupeKey: `seasonal:${ipva.id}:${y}:${userId}`, targetId: ipva.id }]);
+    expect(rem.some((r) => r.targetId === later.id)).toBe(false);
+
+    await dispatchReminders(ctx);
+    const msg = wa.sent.find((s) => s.text.includes('IPVA'));
+    expect(msg?.text).toContain('Daqui a 40 dias');
+    expect(msg?.text).toContain('R$ 2.340,00 em cota única');
+    expect(msg?.text).toContain('Responda *sim*');
+
+    await handleInbound(app, {
+      messageId: `c-${Date.now()}`,
+      from: phone,
+      timestamp: Date.now() / 1000,
+      kind: 'text',
+      text: 'sim',
+      raw: {},
+    });
+    const after = await env.owner.db
+      .selectFrom('seasonalItems')
+      .select('status')
+      .where('id', '=', ipva.id)
+      .executeTakeFirstOrThrow();
+    expect(after.status).toBe('confirmed');
+    const planned = await env.owner.db
+      .selectFrom('plannedCashflows')
+      .select(['date', 'amountCents', 'source'])
+      .where('refId', '=', ipva.id)
+      .orderBy('date')
+      .execute();
+    // esta temporada e a seguinte (horizonte de 24 meses)
+    expect(planned).toHaveLength(2);
+    expect(planned[0]).toEqual({ date: due, amountCents: 234_000, source: 'seasonal' });
+    expect(wa.sent.at(-1)?.text).toMatch(/Calendário atualizado/);
+  });
+});
+
+describe.skipIf(!hasDb)('Worker: push quando não há WhatsApp', () => {
+  let env: TestEnv;
+  let ctx: WorkerContext;
+  let userId: string;
+  let ws: string;
+  const pushes: Array<{ userId: string; title: string; body?: string; url?: string }> = [];
+  let emails = 0;
+
+  beforeAll(async () => {
+    env = setupEnv();
+    const app: AppContext = {
+      ...makeApp(env),
+      mailer: { send: async () => void emails++ },
+      push: {
+        publicKey: 'chave',
+        sendToUser: async (uid, msg) => {
+          pushes.push({ userId: uid, ...msg });
+          return 1;
+        },
+      },
+    };
+    ctx = { app, sys: env.owner.db, close: async () => {} };
+    userId = await env.createUser('Gil');
+    ws = await env.createWorkspace(userId, 'Casa Gil');
+    await env.owner.db
+      .updateTable('workspaceSettings')
+      .set({ reminderTime: '00:00', quietStart: '00:00', quietEnd: '00:00' })
+      .where('workspaceId', '=', ws)
+      .execute();
+  });
+  afterAll(async () => env?.cleanup());
+
+  it('lembrete vai por push (sem e-mail) e abre a página certa', async () => {
+    await env.owner.db
+      .insertInto('reminders')
+      .values({
+        workspaceId: ws,
+        userId,
+        kind: 'import_reminder',
+        fireAt: new Date(Date.now() - 60_000),
+        dedupeKey: `t-push-import-${ws}`,
+      })
+      .execute();
+    await dispatchReminders(ctx);
+    const r = await env.owner.db
+      .selectFrom('reminders')
+      .select(['status', 'channel'])
+      .where('dedupeKey', '=', `t-push-import-${ws}`)
+      .executeTakeFirstOrThrow();
+    expect(r).toEqual({ status: 'sent', channel: 'push' });
+    expect(emails).toBe(0);
+    expect(pushes.at(-1)).toMatchObject({ userId, title: 'Hora de importar o extrato', url: '/importacoes' });
+    expect(pushes.at(-1)!.body).not.toMatch(/\*/);
+  });
+});

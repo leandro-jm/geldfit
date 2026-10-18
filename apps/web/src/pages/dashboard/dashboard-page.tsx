@@ -11,10 +11,12 @@ import {
   AllocationPanel,
   CardsPanel,
   CategoriesPanel,
+  CommitmentPanel,
   EmergencyReservePanel,
   FlowsPanel,
   InsightsPanel,
   KpiRow,
+  NextActionsPanel,
   PensionPanel,
   PerformancePanel,
   ProjectionPanel,
@@ -101,7 +103,9 @@ export function DashboardPage() {
           <KpiRow />
         </div>
         {isEmpty ? null : <SafeToSpendPanel className="@min-[620px]:col-span-2 @min-[1120px]:col-span-12" />}
+        {isEmpty ? null : <CommitmentPanel className="@min-[620px]:col-span-2 @min-[1120px]:col-span-12" />}
         <ProjectionPanel className="@min-[620px]:col-span-2 @min-[1120px]:col-span-12" />
+        <NextActionsPanel className="@min-[620px]:order-1 @min-[1120px]:col-span-4" />
         <InsightsPanel className="@min-[620px]:order-1 @min-[1120px]:col-span-4" />
         <FlowsPanel className="@min-[620px]:order-2 @min-[620px]:col-span-2 @min-[1120px]:col-span-7" />
         <CategoriesPanel className="@min-[620px]:order-2 @min-[1120px]:col-span-5" />

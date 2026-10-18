@@ -5,6 +5,7 @@ import type { Config } from './config.js';
 import type { FileStorage } from './storage/file-storage.js';
 import type { Mailer } from './lib/mailer.js';
 import type { MessagingChannel } from './channels/types.js';
+import type { PushSender } from './lib/push.js';
 
 /** Dependências compartilhadas por rotas, agente e worker. */
 export interface AppContext {
@@ -16,6 +17,8 @@ export interface AppContext {
   storage: FileStorage;
   mailer: Mailer;
   whatsapp: MessagingChannel | null;
+  /** Web Push (null sem chaves VAPID). */
+  push: PushSender | null;
   log: Logger;
 }
 

@@ -1,9 +1,16 @@
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   AccountDTO,
+  AgentUsageDTO,
+  AiSettingsDTO,
+  FinancialProfileDTO,
+  MemoryDTO,
+  NudgeDTO,
+  CalendarDTO,
   CardDTO,
   CategoryDTO,
   CategorySpend,
+  CommitmentDTO,
   DashboardSummary,
   DraftDTO,
   EmergencyReserveDTO,
@@ -14,6 +21,7 @@ import type {
   PortfolioDTO,
   ProjectionDTO,
   RecurrenceDTO,
+  RetirementScenarioDTO,
   SafeToSpendDTO,
   TransactionDTO,
   UpcomingItem,
@@ -57,6 +65,16 @@ export function useMe() {
   return useQuery({ queryKey: meKey, queryFn: () => api<Me>('/api/me'), staleTime: 60_000 });
 }
 
+/** Chaves e modelos de IA da instância (só admin; não depende do workspace). */
+export const aiSettingsKey = ['admin', 'ai-settings'] as const;
+export function useAiSettings(enabled = true) {
+  return useQuery({
+    queryKey: aiSettingsKey,
+    queryFn: () => api<AiSettingsDTO>('/api/admin/ai-settings'),
+    enabled,
+  });
+}
+
 /** Query no escopo do workspace atual: a chave começa com ['ws', id] para invalidação em bloco. */
 function useWsQuery<T>(
   path: string,
@@ -75,12 +93,15 @@ function useWsQuery<T>(
 
 export const useSummary = () => useWsQuery<DashboardSummary>('/api/dashboard/summary');
 export const useEmergencyReserve = () => useWsQuery<EmergencyReserveDTO>('/api/dashboard/emergency-reserve');
+export const useCommitment = (months = 12) =>
+  useWsQuery<CommitmentDTO>(`/api/dashboard/commitment?months=${months}`);
 export const useSafeToSpend = () => useWsQuery<SafeToSpendDTO>('/api/dashboard/safe-to-spend');
 export const useUpcoming = (days = 15) => useWsQuery<UpcomingItem[]>(`/api/dashboard/upcoming?days=${days}`);
 export const useFlows = () => useWsQuery<MonthlyFlow[]>('/api/dashboard/flows');
 export const useCategorySpend = () => useWsQuery<CategorySpend[]>('/api/dashboard/categories');
 export const useProjection = (accountId?: string | null, months = 24) =>
   useWsQuery<ProjectionDTO>(`/api/projection?months=${months}${accountId ? `&account=${accountId}` : ''}`);
+export const useCalendar = (months = 12) => useWsQuery<CalendarDTO>(`/api/calendar?months=${months}`);
 export const useAccounts = () => useWsQuery<AccountDTO[]>('/api/accounts');
 export const useCards = () => useWsQuery<CardDTO[]>('/api/cards');
 export const useCardStatements = (cardId: string | null) =>
@@ -88,6 +109,7 @@ export const useCardStatements = (cardId: string | null) =>
 export const useCategories = () => useWsQuery<CategoryDTO[]>('/api/categories');
 export const useRecurrences = () => useWsQuery<RecurrenceDTO[]>('/api/recurrences');
 export const usePension = () => useWsQuery<PensionDTO>('/api/pension');
+export const useRetirement = () => useWsQuery<RetirementScenarioDTO>('/api/retirement');
 export const usePortfolio = () => useWsQuery<PortfolioDTO>('/api/portfolio');
 export const useTrades = () => useWsQuery<TradeRow[]>('/api/trades');
 export const useAllocationTargets = () => useWsQuery<AllocationTargetRow[]>('/api/allocation-targets');
@@ -102,6 +124,28 @@ export const useAttachments = () => useWsQuery<AttachmentRow[]>('/api/attachment
 export const usePendingDrafts = (kind?: string) =>
   useWsQuery<DraftDTO[]>(`/api/drafts?status=pending${kind ? `&kind=${kind}` : ''}`);
 export const useWhatsApp = () => useWsQuery<WhatsAppResponse>('/api/channels/whatsapp');
+export const useMemories = (status: 'open' | 'archived' = 'open') =>
+  useWsQuery<MemoryDTO[]>(`/api/memories?status=${status}`);
+export const useProfile = () => useWsQuery<FinancialProfileDTO>('/api/profile');
+export const useAgentUsage = () => useWsQuery<AgentUsageDTO>('/api/agent/usage');
+export const useNudges = (scope: 'open' | 'history' = 'open') =>
+  useWsQuery<NudgeDTO[]>(`/api/nudges?scope=${scope}`);
+export const useNudgeSuggestions = () => useWsQuery<string[]>('/api/nudges/suggestions');
+export const useNudgeMutes = () => useWsQuery<string[]>('/api/nudges/mutes');
+
+/** Chamada à API seguida de invalidação das queries do workspace (memória, perfil, avisos). */
+export function useApiMutation<V>(
+  fn: (v: V) => { path: string; method: string; body?: Record<string, unknown> },
+) {
+  const invalidate = useInvalidateWorkspace();
+  return useMutation({
+    mutationFn: (v: V) => {
+      const r = fn(v);
+      return api<unknown>(r.path, { method: r.method, body: r.body });
+    },
+    onSuccess: () => void invalidate(),
+  });
+}
 
 export interface TxFilters {
   from?: string;

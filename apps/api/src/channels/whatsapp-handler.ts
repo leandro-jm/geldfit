@@ -1,5 +1,5 @@
 import { sql, withUserContext } from '@sf/db';
-import { formatDateBR, formatMoney, type DraftDTO } from '@sf/shared';
+import { formatDateBR, formatMoney, visualToText, type DraftDTO } from '@sf/shared';
 import type { Actor, AppContext } from '../context.js';
 import { AppError } from '../lib/errors.js';
 import { handleMessage } from '../agent/orchestrator.js';
@@ -149,7 +149,7 @@ export async function handleInbound(app: AppContext, msg: InboundMessage): Promi
 
   try {
     const res = await handleMessage(app, actor, { text, attachmentIds });
-    const parts = [heard ? `🎤 _"${heard}"_` : '', res.text];
+    const parts = [heard ? `🎤 _"${heard}"_` : '', res.text, ...res.visuals.map((v) => visualToText(v))];
     const pending = res.drafts.filter((d) => d.status === 'pending');
     for (const d of pending) parts.push(draftToWhatsApp(d));
     if (pending.length) {

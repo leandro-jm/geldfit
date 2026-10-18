@@ -15,18 +15,25 @@ const mark = (size, pad) => {
     <circle cx="24" cy="11" r="2" fill="#fff"/>
   </g></svg>`;
 };
+// Badge da notificação (Android): só o traço, branco sobre transparente — o sistema pinta.
+const badge = (
+  size,
+) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="4 4 24 24">
+  <path d="M6 21.5l6-6 4.5 4 8-9" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="24.5" cy="10.5" r="2.4" fill="#fff"/></svg>`;
 const targets = [
   ['pwa-192.png', 192, 0],
   ['pwa-512.png', 512, 0],
   ['pwa-maskable-512.png', 512, 96],
   ['apple-touch-icon.png', 180, 24],
+  ['badge-72.png', 72, -1],
 ];
 const browser = await chromium.launch();
 const page = await browser.newPage();
 for (const [name, size, pad] of targets) {
   await page.setViewportSize({ width: size, height: size });
   await page.setContent(
-    `<html><body style="margin:0;background:transparent">${mark(size, pad)}</body></html>`,
+    `<html><body style="margin:0;background:transparent">${pad < 0 ? badge(size) : mark(size, pad)}</body></html>`,
   );
   await page.locator('svg').screenshot({ path: join(pub, name), omitBackground: true });
   console.log('ok', name);

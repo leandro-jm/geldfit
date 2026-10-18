@@ -10,7 +10,20 @@ import {
   type ReactNode,
 } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, Camera, FileText, Loader2, Paperclip, Sparkles, SquarePen, X } from 'lucide-react';
+import {
+  ArrowUp,
+  AudioLines,
+  BellRing,
+  Camera,
+  FileText,
+  Loader2,
+  MessageCircle,
+  Mic,
+  Paperclip,
+  Sparkles,
+  SquarePen,
+  X,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { useBreakpoint, useReducedMotion } from '@/lib/media';
 import type { UploadResult } from '@/lib/types';
@@ -20,10 +33,14 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tip } from '@/components/ui/menu';
 import { toast } from 'sonner';
-import { useMe } from '@/lib/queries';
+import { useMe, useNudgeSuggestions } from '@/lib/queries';
+import type { ChatVisual } from '@sf/shared';
+import { CommitmentChart, CommitmentLegend } from '@/components/charts/charts';
 import { DraftCard } from './draft-card';
 import { VoiceButton, voiceSupported } from './voice-button';
 import { toolLabel, useChat, type UiAttachment, type UiMessage } from './chat-context';
+import { useVoiceSession, voiceChatSupported } from './use-voice-session';
+import { VoiceModeButton, VoiceStage } from './voice-mode';
 
 const SUGGESTIONS: Array<{ label: string; text: string; attach?: boolean }> = [
   { label: 'quanto sobra em dezembro?', text: 'quanto sobra em dezembro?' },
@@ -67,10 +84,39 @@ function TypingDots() {
   );
 }
 
+/** Gráfico anexado à resposta (ex.: renda comprometida por mês). */
+function VisualCard({ v }: { v: ChatVisual }) {
+  const compare = v.months.some((x) => x.addedCents !== undefined);
+  return (
+    <figure
+      className="w-full max-w-[460px] rounded-2xl border bg-card px-3 pb-2 pt-2.5"
+      data-testid="chat-visual"
+    >
+      <figcaption className="text-[12.5px] font-medium">{v.title}</figcaption>
+      <div className="mt-1.5">
+        <CommitmentLegend compare={compare} />
+      </div>
+      <CommitmentChart data={v.months} threshold={v.threshold} height={170} compact />
+    </figure>
+  );
+}
+
 function MessageBubble({ m }: { m: UiMessage }) {
   const reduced = useReducedMotion();
   const mine = m.role === 'user';
+  if (m.divider) {
+    return (
+      <li className="flex items-center gap-2 text-[11.5px] text-muted-foreground" data-testid="voice-divider">
+        <span className="h-px flex-1 bg-border" />
+        <AudioLines className="size-3.5" aria-hidden />
+        {m.text}
+        <span className="h-px flex-1 bg-border" />
+      </li>
+    );
+  }
   const empty = !m.text && !m.drafts.length && !m.error && !m.notice;
+  // resposta falada que só chamou uma ferramenta de consulta: nada a mostrar depois que termina
+  if (m.voice && empty && !m.streaming && !m.tool && !m.visuals?.length) return null;
   return (
     <motion.li
       initial={reduced ? false : { opacity: 0, y: 6 }}
@@ -78,10 +124,26 @@ function MessageBubble({ m }: { m: UiMessage }) {
       transition={{ duration: 0.18 }}
       className={cn('flex flex-col gap-2', mine ? 'items-end' : 'items-start')}
       data-role={m.role}
+      data-voice={m.voice ? 'true' : undefined}
     >
       {m.context ? (
         <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
           Sobre: {m.context.panel}
+        </span>
+      ) : null}
+      {m.channel === 'whatsapp' || m.proactive ? (
+        <span
+          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+          data-testid="message-origin"
+        >
+          {m.proactive ? (
+            <BellRing className="size-3" aria-hidden />
+          ) : (
+            <MessageCircle className="size-3" aria-hidden />
+          )}
+          {[m.proactive ? 'Aviso do assistente' : null, m.channel === 'whatsapp' ? 'pelo WhatsApp' : null]
+            .filter(Boolean)
+            .join(' · ')}
         </span>
       ) : null}
       {m.attachments.length ? (
@@ -106,6 +168,9 @@ function MessageBubble({ m }: { m: UiMessage }) {
               : 'rounded-bl-md bg-muted text-foreground',
           )}
         >
+          {m.voice && mine ? (
+            <Mic className="mb-0.5 mr-1.5 inline size-3.5 opacity-70" aria-label="Falado" />
+          ) : null}
           {m.text ? <RichText text={m.text} /> : null}
           {m.streaming && !m.text && !m.tool ? <TypingDots /> : null}
           {m.tool ? (
@@ -121,6 +186,9 @@ function MessageBubble({ m }: { m: UiMessage }) {
           ) : null}
         </div>
       ) : null}
+      {m.visuals?.map((v) => (
+        <VisualCard key={v.type} v={v} />
+      ))}
       {m.drafts.map((d) => (
         <div key={d.id} className="w-full max-w-[460px]">
           <DraftCard draft={d} />
@@ -163,6 +231,12 @@ export function ChatView({
   const [dragging, setDragging] = useState(false);
   const me = useMe();
   const canDictate = Boolean(me.data?.features?.audio) && voiceSupported();
+  const canVoice = Boolean(me.data?.features?.voice) && voiceChatSupported();
+  const voice = useVoiceSession();
+  const startVoice = () => {
+    stick.current = true;
+    void voice.start();
+  };
 
   // mantém a conversa "grudada" no fim enquanto o usuário não rolar para cima
   const stick = useRef(true);
@@ -269,6 +343,13 @@ export function ChatView({
     if (e.dataTransfer.files.length) void upload(e.dataTransfer.files);
   };
 
+  // sugestões vindas da caixa do assistente entram antes das fixas
+  const nudgeChips = useNudgeSuggestions();
+  const suggestions = [
+    ...(nudgeChips.data ?? []).map((t) => ({ label: t, text: t, attach: false, fromAgent: true })),
+    ...SUGGESTIONS.map((s) => ({ ...s, fromAgent: false })),
+  ].slice(0, 6);
+
   const pickSuggestion = (s: (typeof SUGGESTIONS)[number]) => {
     if (s.attach) {
       chat.setInput(s.text);
@@ -311,8 +392,13 @@ export function ChatView({
             <SquarePen aria-hidden />
           </Button>
         </Tip>
+        {canVoice && !voice.active ? (
+          <VoiceModeButton onClick={startVoice} className="size-8 rounded-lg" />
+        ) : null}
         {headerActions}
       </div>
+
+      <AnimatePresence initial={false}>{voice.active ? <VoiceStage voice={voice} /> : null}</AnimatePresence>
 
       <div
         ref={listRef}
@@ -349,7 +435,7 @@ export function ChatView({
         )}
       </div>
 
-      <div className="shrink-0 border-t bg-card px-3 pb-3 pt-2">
+      <div className={cn('shrink-0 border-t bg-card px-3 pb-3 pt-2', voice.active && 'hidden')}>
         <AnimatePresence initial={false}>
           {showSuggestions ? (
             <div
@@ -357,14 +443,18 @@ export function ChatView({
               role="list"
               aria-label="Sugestões"
             >
-              {SUGGESTIONS.map((s) => (
+              {suggestions.map((s) => (
                 <button
                   key={s.label}
                   role="listitem"
                   type="button"
                   onClick={() => pickSuggestion(s)}
-                  className="h-8 shrink-0 rounded-full border bg-card px-3 text-[12.5px] text-foreground transition-colors hover:bg-muted"
+                  className={cn(
+                    'inline-flex h-8 shrink-0 items-center gap-1 rounded-full border bg-card px-3 text-[12.5px] text-foreground transition-colors hover:bg-muted',
+                    s.fromAgent && 'border-primary/40 bg-primary-soft/50',
+                  )}
                 >
+                  {s.fromAgent ? <Sparkles className="size-3 text-primary" aria-hidden /> : null}
                   {s.label}
                 </button>
               ))}
@@ -495,6 +585,9 @@ export function ChatView({
             enterKeyHint="send"
             className="max-h-40 min-h-10 flex-1 resize-none bg-transparent px-1 py-2 text-[16px] leading-6 outline-none placeholder:text-muted-foreground sm:text-[14px]"
           />
+          {canVoice && !chat.input.trim() && !files.length ? (
+            <VoiceModeButton onClick={startVoice} />
+          ) : null}
           {canDictate && !chat.input.trim() && !files.length ? (
             <VoiceButton
               disabled={chat.streaming}

@@ -1,10 +1,18 @@
 import { formatBRL, monthLabel, type ProjectionDTO, type ProjectionMonth } from '@sf/shared';
 import { sql, type Tx } from '@sf/db';
+import { workspaceToday } from './ledger.js';
+import { seasonalByMonth } from './seasonal.js';
 
 export async function computeProjection(
   tx: Tx,
   ws: string,
-  opts: { months?: number; accountId?: string | null; today?: string | null } = {},
+  opts: {
+    months?: number;
+    accountId?: string | null;
+    today?: string | null;
+    /** Anexa os itens do calendário de cada mês (sugeridos e confirmados). */
+    withSeasonal?: boolean;
+  } = {},
 ): Promise<ProjectionDTO> {
   const rows = await sql<ProjectionMonth>`
     select * from project(${ws}::uuid, ${opts.months ?? 24}::int, ${opts.accountId ?? null}::uuid, ${opts.today ?? null}::date)
@@ -15,6 +23,11 @@ export async function computeProjection(
     .where('workspaceId', '=', ws)
     .executeTakeFirst();
   const months = rows.rows;
+  if (opts.withSeasonal && !opts.accountId && months.length) {
+    const today = opts.today ?? (await workspaceToday(tx, ws));
+    const byMonth = await seasonalByMonth(tx, ws, today, months.length);
+    for (const m of months) m.seasonal = byMonth.get(m.month) ?? [];
+  }
   const firstBelow = months.find((m) => m.belowFloor)?.month ?? null;
   const min = months.reduce<ProjectionMonth | null>(
     (acc, m) => (!acc || m.closingCents < acc.closingCents ? m : acc),

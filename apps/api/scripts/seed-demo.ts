@@ -318,6 +318,17 @@ for (let m = 0; m < 6; m++) {
     sponsorCents: 45_000,
   });
 }
+await act('retirement_profile', {
+  birthDate: '1986-07-20',
+  retireAge: 60,
+  endAge: 90,
+  accumulationRate: 0.04,
+  withdrawalRate: 0.03,
+  contributionGrowth: 0,
+  inssMonthlyCents: 350_000,
+  targetIncomeCents: null,
+  includeInvestments: false,
+});
 
 // Carteira
 const asset = (ticker: string | null, name: string, kind: string, currency: 'BRL' | 'USD' = 'BRL') =>

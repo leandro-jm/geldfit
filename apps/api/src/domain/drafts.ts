@@ -1,13 +1,21 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { normalizeDescription, type Currency, type DraftDTO, type DraftPreview } from '@sf/shared';
+import {
+  descriptionKey,
+  normalizeDescription,
+  type Currency,
+  type DraftDTO,
+  type DraftPreview,
+} from '@sf/shared';
 import { sql, type Tx } from '@sf/db';
 import type { Actor } from '../context.js';
 import { AppError, forbidden, notFound } from '../lib/errors.js';
 import { audit } from './audit.js';
 import { insertTransactions, materializeRecurrence, workspaceToday } from './ledger.js';
+import { PROFILE_PATCH_SCHEMA, upsertProfile } from './profile.js';
 import { computeProjection, projectionImpact } from './projection.js';
 import { resolveCategory } from './resolve.js';
+import { editedScheduleYear, syncSeasonalPlanned } from './seasonal.js';
 
 const iso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const uuid = z.string().uuid();
@@ -79,6 +87,12 @@ const goalFields = z.object({
   targetDate: iso.nullish(),
 });
 
+const seasonalEntry = z.object({
+  month: z.number().int().min(1).max(12),
+  day: z.number().int().min(1).max(31),
+  amountCents: cents.nonnegative(),
+});
+
 const tradeItem = z.object({
   assetId: uuid,
   broker: z.string().max(60).nullish(),
@@ -121,6 +135,18 @@ export const DRAFT_SCHEMAS = {
     participantCents: cents.nonnegative().default(0),
     sponsorCents: cents.nonnegative().default(0),
     attachmentId: uuid.nullish(),
+  }),
+  // Perfil de aposentadoria do próprio usuário (payload completo; quem chama junta com o atual)
+  retirement_profile: z.object({
+    birthDate: iso,
+    retireAge: z.number().int().min(30).max(90),
+    endAge: z.number().int().min(50).max(110),
+    accumulationRate: z.number().min(-0.05).max(0.2),
+    withdrawalRate: z.number().min(-0.05).max(0.2),
+    contributionGrowth: z.number().min(-0.1).max(0.1),
+    inssMonthlyCents: cents.nonnegative().nullish(),
+    targetIncomeCents: cents.positive().nullish(),
+    includeInvestments: z.boolean(),
   }),
   edit: z.object({
     transactionIds: z.array(uuid).min(1),
@@ -191,7 +217,24 @@ export const DRAFT_SCHEMAS = {
     alertPct: z.number().int().min(1).max(200).default(100),
   }),
   goal: z.object({ mode: z.enum(['create', 'update']), id: uuid.nullish(), fields: goalFields }),
+  // Calendário: confirmar (entra na projeção), editar valor/agenda (também confirma), ignorar ou criar à mão
+  seasonal: z.object({
+    mode: z.enum(['confirm', 'edit', 'dismiss', 'create']),
+    id: uuid.nullish(),
+    fields: z
+      .object({
+        label: z.string().min(1).max(80).optional(),
+        direction: z.enum(['in', 'out']).optional(),
+        categoryId: uuid.nullish(),
+        schedule: z.array(seasonalEntry).min(1).max(12).optional(),
+        leadDays: z.number().int().min(7).max(120).optional(),
+        matchPattern: z.string().max(80).nullish(),
+      })
+      .default({}),
+  }),
   undo: z.object({ auditId: z.number().int() }),
+  // Perfil financeiro do próprio usuário (patch: só os campos informados mudam)
+  financial_profile: PROFILE_PATCH_SCHEMA,
 } as const;
 
 export type DraftKind = keyof typeof DRAFT_SCHEMAS;
@@ -205,6 +248,7 @@ const DONE: Record<DraftKind, string> = {
   account: 'Conta salva.',
   card: 'Cartão salvo.',
   pension_entry: 'Extrato da previdência registrado.',
+  retirement_profile: 'Perfil de aposentadoria salvo.',
   edit: 'Lançamento corrigido.',
   delete: 'Removido.',
   settings: 'Preferências atualizadas.',
@@ -215,7 +259,9 @@ const DONE: Record<DraftKind, string> = {
   allocation_targets: 'Alocação-alvo salva.',
   budget: 'Orçamento salvo.',
   goal: 'Meta salva.',
+  seasonal: 'Calendário atualizado.',
   undo: 'Desfeito.',
+  financial_profile: 'Perfil financeiro atualizado.',
 };
 
 // Tipos que mexem na projeção (vale a pena calcular o impacto na prévia)
@@ -231,6 +277,7 @@ const AFFECTS_PROJECTION = new Set<DraftKind>([
   'card_payment',
   'mark_paid',
   'goal',
+  'seasonal',
   'settings',
   'undo',
 ]);
@@ -339,7 +386,18 @@ export async function confirmDraft(tx: Tx, actor: Actor, draftId: string): Promi
     .set({ status: 'confirmed', decidedAt: new Date(), result: JSON.stringify(result) })
     .where('id', '=', draftId)
     .execute();
+  await settleNudge(tx, draftId, 'accepted');
   return result;
+}
+
+/** Sugestão proativa ligada ao draft: confirmar aceita, cancelar dispensa (vale em qualquer canal). */
+async function settleNudge(tx: Tx, draftId: string, status: 'accepted' | 'dismissed') {
+  await tx
+    .updateTable('agentNudges')
+    .set({ status, respondedAt: new Date() })
+    .where('draftId', '=', draftId)
+    .where('status', 'in', ['candidate', 'scheduled', 'delivered', 'snoozed'])
+    .execute();
 }
 
 export async function cancelDraft(tx: Tx, actor: Actor, draftId: string): Promise<void> {
@@ -352,6 +410,7 @@ export async function cancelDraft(tx: Tx, actor: Actor, draftId: string): Promis
     .executeTakeFirst();
   if (Number(r.numUpdatedRows) === 0)
     throw new AppError(409, 'Este rascunho já foi decidido.', 'draft_decided');
+  await settleNudge(tx, draftId, 'dismissed');
 }
 
 /** Último draft pendente do usuário na conversa (para confirmações por texto no WhatsApp). */
@@ -862,6 +921,38 @@ async function applyDraft<K extends DraftKind>(
       });
       return [row.id];
     }
+    case 'retirement_profile': {
+      const t = p as DraftPayload<'retirement_profile'>;
+      if (t.endAge <= t.retireAge)
+        throw new AppError(422, 'A idade final precisa ser maior que a de aposentadoria.');
+      const fields = {
+        ...t,
+        inssMonthlyCents: t.inssMonthlyCents ?? null,
+        targetIncomeCents: t.targetIncomeCents ?? null,
+      };
+      // userId sempre do ator: cada um grava só o próprio perfil
+      await tx
+        .insertInto('retirementProfiles')
+        .values({ ...fields, workspaceId: ws, userId: actor.userId })
+        .onConflict((oc) => oc.columns(['workspaceId', 'userId']).doUpdateSet(fields))
+        .execute();
+      // O log é visível ao workspace: data de nascimento fica de fora
+      const { birthDate: _birthDate, ...safe } = fields;
+      await audit(tx, actor, { action: 'upsert', entity: 'retirement_profiles', after: safe, draftId });
+      return [];
+    }
+    case 'financial_profile': {
+      const t = p as DraftPayload<'financial_profile'>;
+      await upsertProfile(tx, actor, t);
+      // O log é visível ao workspace: só registra quais campos mudaram
+      await audit(tx, actor, {
+        action: 'upsert',
+        entity: 'user_financial_profiles',
+        after: { fields: Object.keys(t) },
+        draftId,
+      });
+      return [];
+    }
     case 'settings': {
       const t = p as DraftPayload<'settings'>;
       if (t.workspace && Object.keys(t.workspace).length) {
@@ -966,6 +1057,80 @@ async function applyDraft<K extends DraftKind>(
         draftId,
       });
       return [row.id];
+    }
+    case 'seasonal': {
+      const t = p as DraftPayload<'seasonal'>;
+      const f = t.fields;
+      const today = await workspaceToday(tx, ws);
+      let id: string;
+      if (t.mode === 'create') {
+        if (!f.label || !f.direction || !f.schedule)
+          throw new AppError(422, 'Faltou o nome, o valor ou o mês do item.');
+        const row = await tx
+          .insertInto('seasonalItems')
+          .values({
+            workspaceId: ws,
+            key: `manual:${randomUUID().slice(0, 8)}`,
+            label: f.label,
+            kind: f.direction === 'in' ? 'income' : 'expense',
+            direction: f.direction,
+            categoryId: f.categoryId ?? null,
+            matchPattern: normalizeDescription(f.matchPattern ?? f.label) || null,
+            schedule: JSON.stringify(f.schedule),
+            leadDays: f.leadDays ?? 30,
+            confidence: 'alta',
+            status: 'confirmed',
+            source: 'manual',
+            confirmedAt: new Date(),
+          })
+          .returningAll()
+          .executeTakeFirstOrThrow();
+        await audit(tx, actor, {
+          action: 'create',
+          entity: 'seasonal_items',
+          entityId: row.id,
+          after: row,
+          draftId,
+        });
+        id = row.id;
+      } else {
+        const before = await tx
+          .selectFrom('seasonalItems')
+          .selectAll()
+          .where('id', '=', t.id!)
+          .executeTakeFirst();
+        if (!before || before.workspaceId !== ws) throw notFound('Item do calendário');
+        const set: Record<string, unknown> =
+          t.mode === 'dismiss'
+            ? { status: 'dismissed' }
+            : { status: 'confirmed', confirmedAt: before.confirmedAt ?? new Date() };
+        if (t.mode !== 'dismiss') {
+          if (f.label) set.label = f.label;
+          if (f.leadDays) set.leadDays = f.leadDays;
+          if (f.categoryId !== undefined) set.categoryId = f.categoryId;
+          if (f.schedule) {
+            set.schedule = JSON.stringify(f.schedule);
+            set.scheduleYear = editedScheduleYear(f.schedule, today);
+          }
+        }
+        const row = await tx
+          .updateTable('seasonalItems')
+          .set({ ...set, updatedAt: new Date() })
+          .where('id', '=', before.id)
+          .returningAll()
+          .executeTakeFirstOrThrow();
+        await audit(tx, actor, {
+          action: 'update',
+          entity: 'seasonal_items',
+          entityId: row.id,
+          before: [before],
+          after: [row],
+          draftId,
+        });
+        id = row.id;
+      }
+      await syncSeasonalPlanned(tx, ws, today);
+      return [id];
     }
     case 'undo':
       return undoAudit(tx, actor, (p as DraftPayload<'undo'>).auditId, draftId);
@@ -1072,13 +1237,7 @@ function reviveRow(row: Record<string, unknown>): Record<string, unknown> {
 
 /** RF-14: correção de categoria vira regra para lançamentos futuros com a mesma descrição. */
 export async function learnCategoryRule(tx: Tx, ws: string, description: string, categoryId: string) {
-  const pattern = normalizeDescription(description)
-    .replace(/\b\d+\b/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .split(' ')
-    .slice(0, 3)
-    .join(' ');
+  const pattern = descriptionKey(description);
   if (pattern.length < 3) return;
   await tx
     .insertInto('categorizationRules')
