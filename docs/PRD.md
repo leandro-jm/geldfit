@@ -430,4 +430,4 @@ O maior risco é o usuário parar de alimentar o app; o segundo é a extração 
 - [ ] Provedor de LLM e de transcrição de áudio (custo vs precisão em pt-BR).
 - [ ] Cartões adicionais de terceiros entram como membro do workspace ou como tag?
 - [ ] Contas privadas dentro de workspace compartilhado entram na projeção consolidada?
-- [ ] Previdência: exibir projeção de saldo futuro (P2) ou só histórico no MVP?
+- [x] Previdência: exibir projeção de saldo futuro (P2) ou só histórico no MVP? Resolvido: cenário de aposentadoria em `/previdencia` e no chat (`retirement_scenario`), em reais de hoje, com renda constante até a idade final e o quanto falta frente ao gasto atual.
